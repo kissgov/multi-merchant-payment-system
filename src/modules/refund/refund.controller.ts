@@ -92,6 +92,6 @@ export class RefundController {
     @Req() req: Request,
   ) {
     const ua = req.headers['user-agent'];
-    return this.refundService.audit(emp, refundId, body.decision, body.rejectReason, ip, ua);
+    return this.refundService.auditRefund(emp, refundId, body.decision, body.rejectReason, ip, ua);
   }
 }

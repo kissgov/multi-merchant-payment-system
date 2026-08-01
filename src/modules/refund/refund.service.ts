@@ -230,7 +230,7 @@ export class RefundService {
   }
 
   // ========== 2. 审核 ==========
-  async audit(
+  async auditRefund(
     emp: EmployeePayload,
     refundId: string,
     decision: 'approve' | 'reject',

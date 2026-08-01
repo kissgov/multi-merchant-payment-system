@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, Like } from 'typeorm';
 import { AuditLog, AuditAction } from '../../entities/audit-log.entity';
+
+export { AuditAction };
 import { EmployeePayload } from '../../common/decorators/current-employee.decorator';
 
 export interface CreateAuditLogParams {

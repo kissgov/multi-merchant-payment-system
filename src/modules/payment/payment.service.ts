@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, MoreThan } from 'typeorm';
-import * as AlipaySdk from 'alipay-sdk';
+import AlipaySdk from 'alipay-sdk';
 import * as AlipayFormData from 'alipay-sdk/lib/form';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';

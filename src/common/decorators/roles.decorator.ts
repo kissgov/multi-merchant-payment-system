@@ -1,5 +1,5 @@
 import { SetMetadata } from '@nestjs/common';
-import { EmployeeRole } from '../entities/employee.entity';
+import { EmployeeRole } from '../../entities/employee.entity';
 
 /**
  * 角色权限装饰器
