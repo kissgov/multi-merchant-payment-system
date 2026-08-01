@@ -1,27 +1,42 @@
 /**
- * 云端调试用种子脚本
- * 创建一个平台商户 + 超级管理员账号，用于登录测试
- * 运行：DB_TYPE=sqlite DB_DATABASE=./data/payment.db node seed.js
+ * 种子脚本 - 创建平台商户 + 超级管理员账号
+ * SQLite 调试: DB_TYPE=sqlite DB_DATABASE=./data/payment.db node seed.js
+ * MySQL 生产:  DB_TYPE=mysql DB_HOST=127.0.0.1 DB_USERNAME=payment_user DB_PASSWORD='Pay@2026#Secure' DB_DATABASE=payment_system node seed.js
  */
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
 async function main() {
-  // 设置环境变量，确保实体装饰器读到 DB_TYPE=sqlite
-  process.env.DB_TYPE = process.env.DB_TYPE || 'sqlite';
-  process.env.DB_DATABASE = process.env.DB_DATABASE || './data/payment.db';
-
+  const dbType = (process.env.DB_TYPE || 'sqlite').toLowerCase();
   const { DataSource } = require('typeorm');
   const { Employee, EmployeeRole, EmployeeStatus } = require('./dist/entities/employee.entity');
   const { Merchant, MerchantStatus } = require('./dist/entities/merchant.entity');
   const { Role } = require('./dist/entities/role.entity');
 
-  const ds = new DataSource({
-    type: 'sqlite',
-    database: process.env.DB_DATABASE,
-    entities: [__dirname + '/dist/entities/*.entity{.js,.ts}'],
-    synchronize: false,
-  });
+  let dsConfig;
+  if (dbType === 'mysql') {
+    dsConfig = {
+      type: 'mysql',
+      host: process.env.DB_HOST || '127.0.0.1',
+      port: parseInt(process.env.DB_PORT || '3306', 10),
+      username: process.env.DB_USERNAME || 'payment_user',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_DATABASE || 'payment_system',
+      entities: [__dirname + '/dist/entities/*.entity{.js,.ts}'],
+      synchronize: false,
+    };
+  } else {
+    process.env.DB_TYPE = 'sqlite';
+    process.env.DB_DATABASE = process.env.DB_DATABASE || './data/payment.db';
+    dsConfig = {
+      type: 'sqlite',
+      database: process.env.DB_DATABASE,
+      entities: [__dirname + '/dist/entities/*.entity{.js,.ts}'],
+      synchronize: false,
+    };
+  }
+
+  const ds = new DataSource(dsConfig);
   await ds.initialize();
 
   const merchantRepo = ds.getRepository(Merchant);
