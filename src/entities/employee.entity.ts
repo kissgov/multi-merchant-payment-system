@@ -9,7 +9,7 @@ import {
   OneToMany,
   Index,
 } from 'typeorm';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import { Merchant } from './merchant.entity';
 import { Store } from './store.entity';
 import { Order } from './order.entity';
