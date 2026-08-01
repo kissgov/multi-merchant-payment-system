@@ -13,7 +13,10 @@ import { Reflector } from '@nestjs/core';
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
   /** 不需要认证的公开路由前缀 */
-  private static PUBLIC_PATHS = ['/api/auth/login'];
+  private static PUBLIC_PATHS = [
+    '/api/auth/login',
+    '/api/payment/notify', // 支付宝/微信支付回调（公网回调，无法携带 JWT）
+  ];
 
   constructor(private reflector: Reflector) {
     super();
