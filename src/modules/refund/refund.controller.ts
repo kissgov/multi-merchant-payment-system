@@ -8,7 +8,7 @@ import { CurrentEmployee, EmployeePayload } from '../../common/decorators/curren
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 import { EmployeeRole } from '../../entities/employee.entity';
 import { RefundStatus } from '../../entities/refund.entity';
-import { PaymentChannel } from '../../entities/order.entity';
+import { PaymentChannel } from '../../entities/enums';
 import { RefundWorkflowStatus } from './refund-workflow.constant';
 
 @ApiTags('退款管理模块 - Refund（PC端完整）')

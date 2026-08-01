@@ -7,12 +7,13 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { TreeRepository, Repository, DataSource, In } from 'typeorm';
+import { Repository, DataSource, In } from 'typeorm';
 import { Menu, MenuType } from '../../entities/menu.entity';
 import { Role, DataScope } from '../../entities/role.entity';
 import { Employee, EmployeeRole } from '../../entities/employee.entity';
 import { DEFAULT_ALL_PERM_KEYS } from '../../common/guards/permission.guard';
 import { EmployeePayload } from '../../common/decorators/current-employee.decorator';
+import { parsePagination } from '../../common/utils/page';
 
 /**
  * PC端菜单/权限树结构（标准结构，适配Vue/React Admin框架）
@@ -207,7 +208,7 @@ export class RbacService implements OnModuleInit {
   constructor(
     private readonly dataSource: DataSource,
     @InjectRepository(Menu)
-    private readonly menuRepo: TreeRepository<Menu>,
+    private readonly menuRepo: Repository<Menu>,
     @InjectRepository(Role)
     private readonly roleRepo: Repository<Role>,
     @InjectRepository(Employee)
@@ -302,7 +303,7 @@ export class RbacService implements OnModuleInit {
   // ============== 菜单树查询 ==============
   /** 查询全部菜单（管理员编辑角色权限时使用，返回树形） */
   async listAllMenus(includePlatform: boolean): Promise<MenuVo[]> {
-    const qb = this.menuRepo.createQueryBuilder('m').orderBy('m.nsLeft', 'ASC');
+    const qb = this.menuRepo.createQueryBuilder('m').orderBy('m.sort', 'ASC');
     if (!includePlatform) qb.where('m.isPlatform = 0');
     const flat = await qb.getMany();
     return this.buildTree(flat, null);
@@ -319,7 +320,7 @@ export class RbacService implements OnModuleInit {
     qb.andWhere("m.type != 'button'") // 按钮不在菜单树显示
       .andWhere('m.visible = 1')
       .orderBy('m.sort', 'ASC')
-      .addOrderBy('m.nsLeft', 'ASC');
+      .addOrderBy('m.createdAt', 'ASC');
     const all = await qb.getMany();
 
     // 老板/平台管理员直接看全部菜单
@@ -400,9 +401,10 @@ export class RbacService implements OnModuleInit {
       qb.where('(r.merchantId = :mid OR r.merchantId IS NULL)', { mid: emp.merchantId });
     }
     if (keyword) qb.andWhere('(r.name LIKE :kw OR r.code LIKE :kw)', { kw: `%${keyword}%` });
-    qb.orderBy('r.isBuiltin', 'DESC').addOrderBy('r.sort', 'ASC').skip((page - 1) * pageSize).take(pageSize);
+    const pg = parsePagination(page, pageSize);
+    qb.orderBy('r.isBuiltin', 'DESC').addOrderBy('r.sort', 'ASC').skip(pg.skip).take(pg.pageSize);
     const [list, total] = await qb.getManyAndCount();
-    return { list, total, page, pageSize };
+    return { list, total, page: pg.page, pageSize: pg.pageSize };
   }
 
   async getRoleDetail(emp: EmployeePayload, roleId: string) {

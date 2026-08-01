@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, Like } from 'typeorm';
 import { AuditLog, AuditAction } from '../../entities/audit-log.entity';
+import { parsePagination } from '../../common/utils/page';
 
 export { AuditAction };
 import { EmployeePayload } from '../../common/decorators/current-employee.decorator';
@@ -88,9 +89,7 @@ export class AuditLogService {
       success?: boolean;
     },
   ) {
-    const page = dto.page ?? 1;
-    const pageSize = Math.min(dto.pageSize ?? 20, 200);
-    const skip = (page - 1) * pageSize;
+    const { page, pageSize, skip } = parsePagination(dto.page, dto.pageSize);
 
     const qb = this.auditRepo.createQueryBuilder('a');
     qb.where('a.merchantId = :mid OR a.merchantId IS NULL', { mid: emp.merchantId });

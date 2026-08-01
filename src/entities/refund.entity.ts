@@ -9,7 +9,8 @@ import {
   OneToOne,
   Index,
 } from 'typeorm';
-import { Order, PaymentChannel } from './order.entity';
+import { Order } from './order.entity';
+import { PaymentChannel, enumColType } from './enums';
 import { Employee } from './employee.entity';
 
 /**
@@ -44,14 +45,14 @@ export class Refund {
   operatorId: string;
 
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: PaymentChannel,
     comment: '退款渠道（原路退回）',
   })
   paymentChannel: PaymentChannel;
 
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: RefundStatus,
     default: RefundStatus.PENDING,
     comment: '退款状态',

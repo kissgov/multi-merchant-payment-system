@@ -136,8 +136,15 @@ export class PermissionGuard implements CanActivate {
     }
   }
 
+  /** 不需要认证的公开路由 */
+  private static PUBLIC_PATHS = ['/api/auth/login'];
+
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
+    // 公开路由白名单（登录接口等）直接放行
+    if (PermissionGuard.PUBLIC_PATHS.some((p) => req.path === p || req.path.startsWith(p + '/'))) {
+      return true;
+    }
     const user = req.user;
     if (!user) {
       throw new UnauthorizedException('未登录或登录已过期');

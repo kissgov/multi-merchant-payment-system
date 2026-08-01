@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { Menu } from './menu.entity';
 import { Employee } from './employee.entity';
+import { enumColType } from './enums';
 
 /**
  * 数据权限范围枚举
@@ -60,7 +61,7 @@ export class Role {
 
   // ===== 数据权限范围 =====
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: DataScope,
     default: DataScope.CURRENT_STORE,
     comment: '数据权限范围',

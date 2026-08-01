@@ -13,13 +13,14 @@ import * as dayjs from 'dayjs';
 import {
   Order,
   OrderStatus,
-  PaymentChannel,
 } from '../../entities/order.entity';
+import { PaymentChannel } from '../../entities/enums';
 import { Payment, PaymentStatus } from '../../entities/payment.entity';
 import { Refund, RefundStatus } from '../../entities/refund.entity';
 import { Employee, EmployeeStatus, EmployeeRole } from '../../entities/employee.entity';
 import { Merchant } from '../../entities/merchant.entity';
 import { EmployeePayload } from '../../common/decorators/current-employee.decorator';
+import { parsePagination } from '../../common/utils/page';
 
 export interface QueryOrdersDto {
   page?: number;
@@ -73,9 +74,9 @@ export class OrderService {
     emp: EmployeePayload,
     dto: QueryOrdersDto,
   ): Promise<QueryResult<Order & { payment?: Payment }>> {
-    const page = dto.page ?? 1;
-    const pageSize = Math.min(dto.pageSize ?? 20, 100);
-    const skip = (page - 1) * pageSize;
+    const { page, pageSize, skip } = parsePagination(dto.page, dto.pageSize, {
+      maxPageSize: 100,
+    });
 
     const qb = this.orderRepo
       .createQueryBuilder('o')

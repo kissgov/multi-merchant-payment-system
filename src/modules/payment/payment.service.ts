@@ -19,9 +19,9 @@ import { Employee, EmployeeStatus } from '../../entities/employee.entity';
 import {
   Order,
   OrderStatus,
-  PaymentChannel,
   OrderSource,
 } from '../../entities/order.entity';
+import { PaymentChannel } from '../../entities/enums';
 import {
   Payment,
   PaymentStatus,

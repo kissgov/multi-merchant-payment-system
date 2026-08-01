@@ -11,8 +11,8 @@ DB_USER="payment_user"
 DB_PASS="Pay@2026#Secure"
 DB_ROOT_PASS=""  # 留空则尝试从宝塔读取
 BACKEND_PORT=3000
-SERVER_IP="47.99.51.83"
-# ================================
+DOMAIN="pay.kxrdyf.cn"
+# ================================================
 
 echo "=========================================="
 echo "  多商户支付系统 - 部署脚本"
@@ -81,9 +81,9 @@ JWT_EXPIRES_IN=24h
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USERNAME=$DB_USER
-DB_PASSWORD=$DB_PASS
+DB_PASSWORD="$DB_PASS"
 DB_DATABASE=$DB_NAME
-PAYMENT_NOTIFY_BASE_URL=http://$SERVER_IP
+PAYMENT_NOTIFY_BASE_URL=https://$DOMAIN
 EOF
 echo "  OK .env 已生成"
 
@@ -112,11 +112,11 @@ echo ""
 echo "=========================================="
 echo "  部署完成！"
 echo "=========================================="
-echo "  后端API:  http://$SERVER_IP:$BACKEND_PORT/api"
-echo "  前端页面: http://$SERVER_IP"
+echo "  后端API:  https://$DOMAIN/api"
+echo "  前端页面: https://$DOMAIN"
 echo ""
 echo "  下一步: 在宝塔面板 > 网站中添加站点"
-echo "  - 域名: $SERVER_IP"
+echo "  - 域名: $DOMAIN"
 echo "  - 根目录: $FRONTEND_DIR"
 echo "  - 添加反向代理: /api -> http://127.0.0.1:$BACKEND_PORT"
 echo "=========================================="

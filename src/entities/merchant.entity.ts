@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { Store } from './store.entity';
 import { Employee } from './employee.entity';
+import { enumColType } from './enums';
 
 /**
  * 商户状态枚举
@@ -88,7 +89,7 @@ export class Merchant {
   platformFeeRate: number;
 
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: MerchantStatus,
     default: MerchantStatus.ACTIVE,
     comment: '商户状态',

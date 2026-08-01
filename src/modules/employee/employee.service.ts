@@ -10,6 +10,7 @@ import * as dayjs from 'dayjs';
 
 import { Employee, EmployeeRole, EmployeeStatus } from '../../entities/employee.entity';
 import { EmployeePayload } from '../../common/decorators/current-employee.decorator';
+import { parsePagination } from '../../common/utils/page';
 
 export interface CreateEmployeeDto {
   name: string;
@@ -138,11 +139,12 @@ export class EmployeeService {
       );
     }
 
-    qb.orderBy('e.createdAt', 'DESC').skip((page - 1) * pageSize).take(pageSize);
+    const pg = parsePagination(page, pageSize);
+    qb.orderBy('e.createdAt', 'DESC').skip(pg.skip).take(pg.pageSize);
     const [list, total] = await qb.getManyAndCount();
     // 脱敏密码
     (list as any[]).forEach((e) => delete e.password);
-    return { list, total, page, pageSize };
+    return { list, total, page: pg.page, pageSize: pg.pageSize };
   }
 
   /**

@@ -1,6 +1,6 @@
 import { IsEnum, IsNumber, IsString, IsOptional, IsNotEmpty, Min, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { PaymentChannel } from '../../../entities/order.entity';
+import { PaymentChannel } from '../../../entities/enums';
 
 /**
  * 创建收款订单（被扫模式 - 商家扫用户付款码）

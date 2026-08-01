@@ -21,7 +21,7 @@ export function getDesktopInfo() {
 export function getApiBaseUrl(): string {
   if (isElectron) {
     // 桌面端：默认连接本地后端，可扩展为从配置文件读取
-    return localStorage.getItem('apiBaseUrl') || 'http://localhost:3000';
+    return localStorage.getItem('apiBaseUrl') || 'https://pay.kxrdyf.cn';
   }
   // Web 开发模式用 Vite proxy（返回空字符串走代理）
   return import.meta.env.VITE_API_BASE_URL || '';

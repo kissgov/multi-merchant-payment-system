@@ -16,7 +16,8 @@ import { OrderService, QueryOrdersDto, RefundRequest, QueryResult } from './orde
 import { CurrentEmployee, EmployeePayload } from '../../common/decorators/current-employee.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { EmployeeRole } from '../../entities/employee.entity';
-import { Order, OrderStatus, PaymentChannel } from '../../entities/order.entity';
+import { Order, OrderStatus } from '../../entities/order.entity';
+import { PaymentChannel } from '../../entities/enums';
 import { RefundStatus } from '../../entities/refund.entity';
 
 @ApiTags('订单模块 - Order（查询/退款）')

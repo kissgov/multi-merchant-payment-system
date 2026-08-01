@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   Index,
 } from 'typeorm';
+import { enumColType } from './enums';
 
 /**
  * 操作类型枚举
@@ -45,7 +46,7 @@ export class AuditLog {
   module: string;
 
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: AuditAction,
     default: AuditAction.OTHER,
     comment: '操作类型',

@@ -9,7 +9,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In, Between, Brackets } from 'typeorm';
 import * as dayjs from 'dayjs';
 
-import { Order, OrderStatus, PaymentChannel } from '../../entities/order.entity';
+import { Order, OrderStatus } from '../../entities/order.entity';
+import { PaymentChannel } from '../../entities/enums';
 import { Payment, PaymentStatus } from '../../entities/payment.entity';
 import { Refund, RefundStatus } from '../../entities/refund.entity';
 import { Employee, EmployeeRole, EmployeeStatus } from '../../entities/employee.entity';
@@ -18,6 +19,7 @@ import { EmployeePayload } from '../../common/decorators/current-employee.decora
 import { REFUND_APPROVAL_THRESHOLD, REFUND_REASON_CODES, RefundWorkflowStatus } from './refund-workflow.constant';
 import { AuditLogService, AuditAction } from '../audit/audit-log.service';
 import { RbacService } from '../rbac/rbac.service';
+import { parsePagination } from '../../common/utils/page';
 
 export interface CreateRefundDto {
   orderId: string;
@@ -315,9 +317,7 @@ export class RefundService {
 
   // ========== 3. 退款列表（PC后台） ==========
   async queryList(emp: EmployeePayload, dto: QueryRefundDto) {
-    const page = dto.page ?? 1;
-    const pageSize = Math.min(dto.pageSize ?? 20, 200);
-    const skip = (page - 1) * pageSize;
+    const { page, pageSize, skip } = parsePagination(dto.page, dto.pageSize);
 
     const scope = await this.rbac.resolveDataScopeStoreIds(emp);
 

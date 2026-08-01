@@ -63,8 +63,14 @@ function transformMenusToRoutes(menus: MenuVo[]): RouteRecordRaw[] {
       route.children = menu.children
         .filter((c) => c.type === 'menu' && c.path)
         .map((child) => {
+          // 子路由 path 转为相对路径（去掉父级前缀和开头的 /）
+          let childPath = child.path;
+          if (childPath.startsWith(route.path)) {
+            childPath = childPath.slice(route.path.length).replace(/^\/+/, '');
+          }
+          if (!childPath) childPath = 'index';
           const childRoute: RouteRecordRaw = {
-            path: child.path,
+            path: childPath,
             name: child.path.replace(/\//g, '-').slice(1),
             meta: {
               title: child.name,
@@ -76,13 +82,6 @@ function transformMenusToRoutes(menus: MenuVo[]): RouteRecordRaw[] {
           };
           return childRoute;
         });
-      // 修正子路由 path 为相对路径
-      for (const cr of route.children) {
-        if (cr.path.startsWith(route.path)) {
-          cr.path = cr.path.replace(route.path, '');
-          if (!cr.path.startsWith('/')) cr.path = '/' + cr.path;
-        }
-      }
     } else {
       // 独立菜单
       route.component = resolveComponent(menu.component);
@@ -133,6 +132,11 @@ router.beforeEach(async (to, _from, next) => {
         const menus = await permissionStore.generateRoutes();
         const dynamicRoutes = transformMenusToRoutes(menus);
         dynamicRoutes.forEach((r) => router.addRoute(r));
+        // 根路径重定向到第一个可用菜单
+        const firstMenuPath = dynamicRoutes[0]?.path;
+        if (firstMenuPath) {
+          router.addRoute({ path: '/', redirect: firstMenuPath });
+        }
         // 兜底 404
         router.addRoute({
           path: '/:pathMatch(.*)*',

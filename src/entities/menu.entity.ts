@@ -5,12 +5,13 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToMany,
-  Tree,
-  TreeChildren,
-  TreeParent,
+  ManyToOne,
+  OneToMany,
+  JoinColumn,
   Index,
 } from 'typeorm';
 import { Role } from './role.entity';
+import { enumColType } from './enums';
 
 /**
  * 菜单类型枚举
@@ -28,32 +29,29 @@ export enum MenuType {
  * 对于按钮级权限：parent 指向所属页面，type=BUTTON，permKey 为权限键（如 order:refund）
  */
 @Entity('menus')
-@Tree('nested-set')
 @Index('idx_perm_key', ['permKey'], { unique: true })
 export class Menu {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   /** 父级菜单 */
-  @TreeParent()
+  @ManyToOne(() => Menu, (menu) => menu.children, { nullable: true, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'parentId' })
   parent: Menu;
 
   /** 子级菜单/按钮 */
-  @TreeChildren()
+  @OneToMany(() => Menu, (menu) => menu.parent)
   children: Menu[];
 
-  @Column({ type: 'int', nullable: true, comment: '嵌套集左值' })
-  nsLeft: number;
-
-  @Column({ type: 'int', nullable: true, comment: '嵌套集右值' })
-  nsRight: number;
+  @Column({ type: 'uuid', nullable: true, comment: '父级菜单ID' })
+  parentId: string;
 
   // ===== 展示字段 =====
   @Column({ type: 'varchar', length: 50, comment: '菜单/权限名称' })
   name: string;
 
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: MenuType,
     default: MenuType.MENU,
     comment: '类型：目录/菜单/按钮',

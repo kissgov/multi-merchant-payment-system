@@ -14,6 +14,7 @@ import { Merchant } from './merchant.entity';
 import { Store } from './store.entity';
 import { Order } from './order.entity';
 import { Role } from './role.entity';
+import { enumColType } from './enums';
 
 /**
  * 员工角色枚举
@@ -71,7 +72,7 @@ export class Employee {
   avatar: string;
 
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: EmployeeRole,
     default: EmployeeRole.CASHIER,
     comment: '员工内置角色（兼容字段，权限判断优先以 roleId 自定义角色为准）',
@@ -82,7 +83,7 @@ export class Employee {
   roleId: string;
 
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: EmployeeStatus,
     default: EmployeeStatus.ACTIVE,
     comment: '员工状态',

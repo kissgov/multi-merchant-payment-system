@@ -12,6 +12,7 @@ import { Merchant, MerchantStatus } from '../../entities/merchant.entity';
 import { Store } from '../../entities/store.entity';
 import { Employee, EmployeeRole } from '../../entities/employee.entity';
 import { EmployeePayload } from '../../common/decorators/current-employee.decorator';
+import { parsePagination } from '../../common/utils/page';
 
 export interface CreateMerchantDto {
   name: string;
@@ -86,9 +87,10 @@ export class MerchantService {
     const qb = this.merchantRepo.createQueryBuilder('m');
     if (keyword) qb.where('m.name LIKE :kw OR m.merchantNo LIKE :kw', { kw: `%${keyword}%` });
     if (status) qb.andWhere('m.status = :st', { st: status });
-    qb.orderBy('m.createdAt', 'DESC').skip((page - 1) * pageSize).take(pageSize);
+    const pg = parsePagination(page, pageSize);
+    qb.orderBy('m.createdAt', 'DESC').skip(pg.skip).take(pg.pageSize);
     const [list, total] = await qb.getManyAndCount();
-    return { list, total, page, pageSize };
+    return { list, total, page: pg.page, pageSize: pg.pageSize };
   }
 
   /**

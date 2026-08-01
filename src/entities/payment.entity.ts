@@ -8,7 +8,8 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
-import { Order, PaymentChannel } from './order.entity';
+import { Order } from './order.entity';
+import { PaymentChannel, enumColType } from './enums';
 
 /**
  * 支付状态枚举
@@ -53,21 +54,21 @@ export class Payment {
   orderId: string;
 
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: PaymentChannel,
     comment: '支付渠道',
   })
   paymentChannel: PaymentChannel;
 
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: PaymentMethod,
     comment: '具体支付方式',
   })
   paymentMethod: PaymentMethod;
 
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: PaymentStatus,
     default: PaymentStatus.PENDING,
     comment: '支付状态',

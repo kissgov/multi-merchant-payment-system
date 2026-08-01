@@ -11,6 +11,7 @@ import * as dayjs from 'dayjs';
 import { Store, StoreStatus } from '../../entities/store.entity';
 import { Employee, EmployeeRole } from '../../entities/employee.entity';
 import { EmployeePayload } from '../../common/decorators/current-employee.decorator';
+import { parsePagination } from '../../common/utils/page';
 
 export interface CreateStoreDto {
   name: string;
@@ -82,17 +83,18 @@ export class StoreService {
     }
     if (status) qb.andWhere('s.status = :st', { st: status });
 
+    const pg = parsePagination(page, pageSize);
     qb.leftJoinAndMapMany('s.employeeCount', 's.employees', 'e')
       .orderBy('s.createdAt', 'DESC')
-      .skip((page - 1) * pageSize)
-      .take(pageSize);
+      .skip(pg.skip)
+      .take(pg.pageSize);
 
     const [list, total] = await qb.getManyAndCount();
     // 统计人数（简化：实际可以加 count 查询）
     for (const s of list as any[]) {
       s.employeeCount = s.employeeCount?.length || 0;
     }
-    return { list, total, page, pageSize };
+    return { list, total, page: pg.page, pageSize: pg.pageSize };
   }
 
   /**

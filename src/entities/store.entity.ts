@@ -11,6 +11,7 @@ import {
 import { Merchant } from './merchant.entity';
 import { Employee } from './employee.entity';
 import { Order } from './order.entity';
+import { enumColType } from './enums';
 
 /**
  * 门店状态枚举
@@ -71,7 +72,7 @@ export class Store {
   wechatMchId: string;
 
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: StoreStatus,
     default: StoreStatus.ACTIVE,
     comment: '门店状态',

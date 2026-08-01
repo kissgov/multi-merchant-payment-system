@@ -14,14 +14,7 @@ import { Store } from './store.entity';
 import { Employee } from './employee.entity';
 import { Payment } from './payment.entity';
 import { Refund } from './refund.entity';
-
-/**
- * 支付渠道枚举
- */
-export enum PaymentChannel {
-  ALIPAY = 'alipay',       // 支付宝
-  WECHAT = 'wechat',       // 微信支付
-}
+import { PaymentChannel, enumColType } from './enums';
 
 /**
  * 订单状态枚举
@@ -106,7 +99,7 @@ export class Order {
 
   // ===== 支付信息 =====
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: PaymentChannel,
     nullable: true,
     comment: '支付渠道',
@@ -114,7 +107,7 @@ export class Order {
   paymentChannel: PaymentChannel;
 
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: OrderStatus,
     default: OrderStatus.PENDING,
     comment: '订单状态',
@@ -122,7 +115,7 @@ export class Order {
   status: OrderStatus;
 
   @Column({
-    type: 'enum',
+    type: enumColType(),
     enum: OrderSource,
     default: OrderSource.POS_APP,
     comment: '订单来源',
