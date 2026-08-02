@@ -8,7 +8,7 @@
 - **框架**: NestJS 10 + TypeScript 5
 - **数据库**: MySQL 8 + TypeORM 0.3
 - **认证**: JWT + Passport + bcrypt
-- **支付集成**: alipay-sdk (支付宝)、wxpay-v3 (微信支付V3)
+- **支付集成**: alipay-sdk (支付宝)、自研微信支付V3客户端 (Node crypto + axios)
 - **API文档**: Swagger (@nestjs/swagger)
 
 ### 前端（PC管理后台）
