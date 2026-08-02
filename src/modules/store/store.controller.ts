@@ -11,7 +11,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 
-import { StoreService, CreateStoreDto } from './store.service';
+import { StoreService, CreateStoreDto, UpdateStorePaymentConfigDto } from './store.service';
 import { CurrentEmployee, EmployeePayload } from '../../common/decorators/current-employee.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { EmployeeRole } from '../../entities/employee.entity';
@@ -72,6 +72,36 @@ export class StoreController {
   @ApiOperation({ summary: '门店下拉选项（id/name/no）' })
   async dropdown(@CurrentEmployee() emp: EmployeePayload) {
     return this.storeService.dropdown(emp);
+  }
+
+  @Get(':storeId/payment-config')
+  @Roles(
+    EmployeeRole.SUPER_ADMIN,
+    EmployeeRole.MERCHANT_OWNER,
+    EmployeeRole.MERCHANT_ADMIN,
+    EmployeeRole.STORE_MANAGER,
+  )
+  @ApiOperation({ summary: '获取门店支付配置（私密字段脱敏）' })
+  async getPaymentConfig(
+    @CurrentEmployee() emp: EmployeePayload,
+    @Param('storeId') storeId: string,
+  ) {
+    return this.storeService.getPaymentConfig(emp, storeId);
+  }
+
+  @Patch(':storeId/payment-config')
+  @Roles(
+    EmployeeRole.SUPER_ADMIN,
+    EmployeeRole.MERCHANT_OWNER,
+    EmployeeRole.MERCHANT_ADMIN,
+  )
+  @ApiOperation({ summary: '更新门店支付配置（私密字段留空表示不修改）' })
+  async updatePaymentConfig(
+    @CurrentEmployee() emp: EmployeePayload,
+    @Param('storeId') storeId: string,
+    @Body() dto: UpdateStorePaymentConfigDto,
+  ) {
+    return this.storeService.updatePaymentConfig(emp, storeId, dto);
   }
 
   @Get(':storeId')

@@ -61,15 +61,41 @@ export class Store {
   @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true, comment: '纬度' })
   latitude: number;
 
-  // 门店独立收款码配置（可选，若不配置则继承商户配置）
-  @Column({ type: 'boolean', default: false, comment: '是否启用独立收款配置' })
+  // ===== 门店独立支付配置（useIndependentPayment=true 时覆盖商户配置，未配置项回退商户） =====
+  @Column({ type: 'boolean', default: false, comment: '是否启用独立支付配置（启用后下方字段生效，缺省项仍回退商户）' })
   useIndependentPayment: boolean;
 
-  @Column({ type: 'varchar', length: 100, nullable: true, comment: '门店专属支付宝APPID' })
+  // ---- 支付宝 ----
+  @Column({ type: 'varchar', length: 100, nullable: true, comment: '门店支付宝APPID' })
   alipayAppId: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true, comment: '门店专属微信商户号' })
+  @Column({ type: 'text', nullable: true, comment: '门店支付宝应用私钥' })
+  alipayPrivateKey: string;
+
+  @Column({ type: 'text', nullable: true, comment: '门店支付宝公钥' })
+  alipayPublicKey: string;
+
+  @Column({ type: 'boolean', default: false, comment: '门店支付宝沙箱环境' })
+  alipaySandbox: boolean;
+
+  // ---- 微信支付 ----
+  @Column({ type: 'varchar', length: 100, nullable: true, comment: '门店微信商户号' })
   wechatMchId: string;
+
+  @Column({ type: 'varchar', length: 100, nullable: true, comment: '门店微信公众号/小程序APPID' })
+  wechatAppId: string;
+
+  @Column({ type: 'text', nullable: true, comment: '门店微信API V3密钥' })
+  wechatApiV3Key: string;
+
+  @Column({ type: 'text', nullable: true, comment: '门店微信商户证书序列号' })
+  wechatMchSerialNo: string;
+
+  @Column({ type: 'text', nullable: true, comment: '门店微信商户私钥(PEM)' })
+  wechatPrivateKey: string;
+
+  @Column({ type: 'boolean', default: false, comment: '门店微信沙箱环境' })
+  wechatSandbox: boolean;
 
   @Column({
     type: enumColType(),

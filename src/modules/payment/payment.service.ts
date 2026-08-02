@@ -81,23 +81,56 @@ export class PaymentService {
     return `${prefix}${now}${random}`;
   }
 
+  // =============== 工具：解析最终生效的支付配置 ===============
+  /**
+   * 门店启用独立配置(useIndependentPayment=true)时，逐字段优先取门店值；
+   * 门店字段为空则回退商户值。门店未启用独立配置时，全部取商户值。
+   * 修复历史 bug：旧逻辑只替换了 appId/mchId，私钥等仍用商户的 → 签名失败。
+   */
+  private resolvePaymentConfig(merchant: Merchant, store?: Store) {
+    const useStore = !!store?.useIndependentPayment;
+    const pick = <K extends keyof Merchant & keyof Store>(
+      field: K,
+    ): string | boolean | undefined => {
+      if (useStore) {
+        const sv = (store as any)[field];
+        if (sv !== undefined && sv !== null && sv !== '') return sv as any;
+      }
+      return (merchant as any)[field] as any;
+    };
+
+    return {
+      alipayAppId: pick('alipayAppId') as string | undefined,
+      alipayPrivateKey: pick('alipayPrivateKey') as string | undefined,
+      alipayPublicKey: pick('alipayPublicKey') as string | undefined,
+      alipaySandbox: pick('alipaySandbox') as boolean,
+      wechatMchId: pick('wechatMchId') as string | undefined,
+      wechatAppId: pick('wechatAppId') as string | undefined,
+      wechatApiV3Key: pick('wechatApiV3Key') as string | undefined,
+      wechatMchSerialNo: pick('wechatMchSerialNo') as string | undefined,
+      wechatPrivateKey: pick('wechatPrivateKey') as string | undefined,
+      wechatSandbox: pick('wechatSandbox') as boolean,
+      // 费率始终取商户（门店不配费率）
+      platformFeeRate: merchant.platformFeeRate,
+      // 标识本次支付实际命中的配置来源（便于日志/排查）
+      configSource: useStore ? 'store' : 'merchant',
+    };
+  }
+
   // =============== 工具：获取支付宝实例 ===============
   private getAlipayInstance(merchant: Merchant, store?: Store): any {
-    const appId =
-      store?.useIndependentPayment && store.alipayAppId
-        ? store.alipayAppId
-        : merchant.alipayAppId;
-    if (!appId || !merchant.alipayPrivateKey || !merchant.alipayPublicKey) {
-      throw new BadRequestException('商户支付宝支付未配置，请先完善支付配置');
+    const cfg = this.resolvePaymentConfig(merchant, store);
+    if (!cfg.alipayAppId || !cfg.alipayPrivateKey || !cfg.alipayPublicKey) {
+      throw new BadRequestException('支付宝支付未配置，请先完善支付配置');
     }
     return new AlipaySdk({
-      appId,
-      privateKey: merchant.alipayPrivateKey,
-      alipayPublicKey: merchant.alipayPublicKey,
+      appId: cfg.alipayAppId,
+      privateKey: cfg.alipayPrivateKey,
+      alipayPublicKey: cfg.alipayPublicKey,
       charset: 'utf-8',
       version: '1.0',
       signType: 'RSA2',
-      gateway: merchant.alipaySandbox
+      gateway: cfg.alipaySandbox
         ? 'https://openapi-sandbox.dl.alipaydev.com/gateway.do'
         : 'https://openapi.alipay.com/gateway.do',
     });
@@ -382,19 +415,24 @@ export class PaymentService {
     payment: Payment,
     authCode: string,
   ): Promise<PaymentResult> {
-    // 校验微信配置
-    const mchId =
-      store?.useIndependentPayment && store.wechatMchId
-        ? store.wechatMchId
-        : merchant.wechatMchId;
-    if (!mchId || !merchant.wechatAppId || !merchant.wechatApiV3Key || !merchant.wechatPrivateKey) {
-      throw new BadRequestException('商户微信支付未配置，请先完善支付配置');
+    // 解析最终生效配置（门店独立配置优先，回退商户）
+    const cfg = this.resolvePaymentConfig(merchant, store);
+    if (
+      !cfg.wechatMchId ||
+      !cfg.wechatAppId ||
+      !cfg.wechatApiV3Key ||
+      !cfg.wechatPrivateKey
+    ) {
+      throw new BadRequestException('微信支付未配置，请先完善支付配置');
     }
+    const mchId = cfg.wechatMchId;
 
     // ===== 微信支付V3 集成示意 =====
     // 实际项目中请使用 wxpay-v3 SDK 或自己封装签名请求
     // 这里给出标准的请求参数与结果处理
-    this.logger.debug(`[微信被扫] 商户号=${mchId} 订单=${order.orderNo} 金额=${order.paidAmount}`);
+    this.logger.debug(
+      `[微信被扫] 配置来源=${cfg.configSource} 商户号=${mchId} 订单=${order.orderNo} 金额=${order.paidAmount}`,
+    );
 
     // 示例：模拟微信被扫（实际需调用微信 API：/v3/pay/transactions/codepay）
     const mockResult = this.mockWechatMicropayResponse(order, authCode);
@@ -559,11 +597,8 @@ export class PaymentService {
     store: Store,
     order: Order,
   ): Promise<string> {
-    const mchId =
-      store?.useIndependentPayment && store.wechatMchId
-        ? store.wechatMchId
-        : merchant.wechatMchId;
-    if (!mchId || !merchant.wechatAppId) {
+    const cfg = this.resolvePaymentConfig(merchant, store);
+    if (!cfg.wechatMchId || !cfg.wechatAppId) {
       // 返回模拟URL
       return `weixin://wxpay/bizpayurl?pr=mock_${order.orderNo}`;
     }
