@@ -109,7 +109,7 @@
       </div>
 
       <!-- 内容区 -->
-      <div class="app-main">
+      <div class="app-main" v-loading="appStore.globalLoading" element-loading-text="加载中..." element-loading-background="rgba(255,255,255,0.6)">
         <router-view v-slot="{ Component }">
           <keep-alive>
             <component :is="Component" />

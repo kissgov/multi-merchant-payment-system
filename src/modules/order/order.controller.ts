@@ -12,7 +12,9 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 
-import { OrderService, QueryOrdersDto, RefundRequest, QueryResult } from './order.service';
+import { OrderService, QueryResult } from './order.service';
+import { QueryOrdersDto } from './dto/query-orders.dto';
+import { CreateRefundRequestDto } from '../refund/dto/create-refund.dto';
 import { CurrentEmployee, EmployeePayload } from '../../common/decorators/current-employee.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { EmployeeRole } from '../../entities/employee.entity';
@@ -104,7 +106,7 @@ export class OrderController {
   })
   async refund(
     @CurrentEmployee() emp: EmployeePayload,
-    @Body() req: RefundRequest,
+    @Body() req: CreateRefundRequestDto,
   ): Promise<{
     refundId: string;
     refundNo: string;

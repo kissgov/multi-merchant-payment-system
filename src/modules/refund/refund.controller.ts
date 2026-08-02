@@ -3,13 +3,13 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger'
 import { AuthGuard } from '@nestjs/passport';
 import { Request } from 'express';
 
-import { RefundService, CreateRefundDto, QueryRefundDto } from './refund.service';
+import { RefundService } from './refund.service';
+import { CreateRefundRequestDto } from './dto/create-refund.dto';
+import { QueryRefundDto } from './dto/query-refund.dto';
 import { CurrentEmployee, EmployeePayload } from '../../common/decorators/current-employee.decorator';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
-import { EmployeeRole } from '../../entities/employee.entity';
 import { RefundStatus } from '../../entities/refund.entity';
 import { PaymentChannel } from '../../entities/enums';
-import { RefundWorkflowStatus } from './refund-workflow.constant';
 
 @ApiTags('退款管理模块 - Refund（PC端完整）')
 @Controller('api/refunds')
@@ -69,7 +69,7 @@ export class RefundController {
   })
   apply(
     @CurrentEmployee() emp: EmployeePayload,
-    @Body() dto: CreateRefundDto,
+    @Body() dto: CreateRefundRequestDto,
     @Ip() ip: string,
     @Req() req: Request,
   ) {

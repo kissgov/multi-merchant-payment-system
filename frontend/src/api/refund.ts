@@ -38,4 +38,8 @@ export const getReasonCodes = () =>
   request.get('/api/refunds/reason-codes');
 
 export const getPendingCount = () =>
-  request.get('/api/refunds/pending-count');
+  request.get('/api/refunds/pending-count', {
+    showLoading: false,
+    showError: false,
+    cancelDuplicate: false,
+  } as any);

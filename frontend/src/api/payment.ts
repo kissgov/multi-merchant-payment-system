@@ -19,6 +19,10 @@ export const createQrCode = (data: {
   expireSeconds?: number;
 }) => request.post('/api/payment/qrcode', data);
 
-/** 查询支付状态 */
+/** 查询支付状态（收银台轮询用：静默请求，不显示 loading/不弹错误，不取消重复） */
 export const queryPayment = (orderId: string) =>
-  request.get(`/api/payment/${orderId}/query`);
+  request.get(`/api/payment/${orderId}/query`, {
+    showLoading: false,
+    showError: false,
+    cancelDuplicate: false,
+  } as any);
