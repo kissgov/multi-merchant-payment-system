@@ -167,4 +167,26 @@ router.afterEach(() => {
   NProgress.done();
 });
 
+/**
+ * 路由错误兜底：捕获懒加载 chunk 加载失败。
+ * 场景：前端重新部署后，用户当前标签页仍持有旧 index.html（引用已删除的旧 hash chunk），
+ *       路由懒加载该 chunk 时报 "Failed to fetch dynamically imported module" → 白屏。
+ * 处理：自动整页刷新一次（带时间戳绕过缓存拿最新 index.html），避免用户看到白屏。
+ *      用 flag 防止刷新死循环（如刷新后仍失败则不再重试）。
+ */
+let reloadingForChunkError = false;
+router.onError((error, to) => {
+  const msg = (error as Error)?.message || String(error);
+  const isChunkFail =
+    /Failed to fetch dynamically imported module|Loading chunk|Loading CSS chunk|Importing a module script failed/i.test(
+      msg,
+    );
+  if (isChunkFail && !reloadingForChunkError) {
+    reloadingForChunkError = true;
+    const hash = to?.fullPath ? `#${to.fullPath}` : window.location.hash || '';
+    // 带时间戳 query 强制重新下载 index.html，hash 保留以回到目标路由
+    window.location.href = `${window.location.pathname}?t=${Date.now()}${hash}`;
+  }
+});
+
 export default router;
