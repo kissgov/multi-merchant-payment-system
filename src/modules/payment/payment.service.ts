@@ -199,6 +199,32 @@ export class PaymentService {
     }
   }
 
+  // =============== 工具：幂等去重（防重复提交生成重复订单） ===============
+  /**
+   * 查找近期同员工+同渠道+同金额的订单，防止双击/网络重试导致重复下单。
+   * - micropay：15s 窗口（付款码一次性，短时间内重复提交无意义）
+   * - qrCode：60s 窗口（二维码有效期内复用，避免生成多个码）
+   */
+  private async findRecentOrder(
+    emp: EmployeePayload,
+    channel: PaymentChannel,
+    amount: number,
+    withinSeconds: number,
+  ): Promise<Order | null> {
+    const since = dayjs().subtract(withinSeconds, 'second').toDate();
+    return this.orderRepo.findOne({
+      where: {
+        employeeId: emp.id,
+        paymentChannel: channel,
+        paidAmount: Number(amount.toFixed(2)),
+        merchantId: emp.merchantId,
+        createdAt: MoreThan(since) as any,
+      },
+      relations: ['payment'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   // =============== 公共：创建订单与支付记录 ===============
   private async createOrderAndPayment(
     emp: EmployeePayload,
@@ -295,6 +321,30 @@ export class PaymentService {
     this.logger.log(
       `[被扫收款] 员工=${emp.name}(${emp.id}) 渠道=${dto.channel} 金额=${dto.amount} 付款码=${dto.authCode?.substring(0, 6)}***`,
     );
+
+    // 幂等去重：15s 内同员工+同渠道+同金额的订单
+    const recent = await this.findRecentOrder(emp, dto.channel, dto.amount, 15);
+    if (recent) {
+      if (recent.status === OrderStatus.PAID) {
+        // 已支付 → 直接返回成功结果，避免重复扣款
+        return {
+          success: true,
+          orderId: recent.id,
+          orderNo: recent.orderNo,
+          paymentNo: recent.payment?.paymentNo || '',
+          status: PaymentStatus.SUCCESS,
+          amount: recent.paidAmount,
+          channel: dto.channel,
+          paidAt: recent.paidAt,
+          outTradeNo: recent.payment?.outTradeNo,
+          message: '该订单已支付成功（重复提交已拦截）',
+        };
+      }
+      if (recent.status === OrderStatus.PENDING) {
+        throw new BadRequestException('上一笔同金额收款正在处理中，请稍候再试');
+      }
+      // FAILED / CLOSED / EXPIRED → 允许重新下单
+    }
 
     // 确定支付方式
     const paymentMethod =
@@ -554,6 +604,40 @@ export class PaymentService {
     this.logger.log(
       `[主扫收款] 员工=${emp.name} 渠道=${dto.channel} 金额=${dto.amount}`,
     );
+
+    // 幂等去重：60s 内同员工+同渠道+同金额且有二维码的待支付订单 → 复用
+    const recent = await this.findRecentOrder(emp, dto.channel, dto.amount, 60);
+    if (recent && recent.payment?.qrCodeContent) {
+      if (recent.status === OrderStatus.PAID) {
+        return {
+          success: true,
+          orderId: recent.id,
+          orderNo: recent.orderNo,
+          paymentNo: recent.payment.paymentNo,
+          status: PaymentStatus.SUCCESS,
+          amount: recent.paidAmount,
+          channel: dto.channel,
+          paidAt: recent.paidAt,
+          message: '该订单已支付成功（重复提交已拦截）',
+        };
+      }
+      if (recent.status === OrderStatus.PENDING) {
+        // 复用已有二维码，避免生成多个码造成混淆
+        return {
+          success: true,
+          orderId: recent.id,
+          orderNo: recent.orderNo,
+          paymentNo: recent.payment.paymentNo,
+          status: PaymentStatus.WAITING_PAYER,
+          amount: recent.paidAmount,
+          channel: dto.channel,
+          qrCodeContent: recent.payment.qrCodeContent,
+          qrCodeUrl: recent.payment.qrCodeUrl,
+          codeExpireAt: recent.expireAt,
+          message: '已生成收款码，请引导客户扫码（重复提交已复用）',
+        };
+      }
+    }
 
     const paymentMethod =
       dto.channel === PaymentChannel.ALIPAY

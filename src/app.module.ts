@@ -40,14 +40,20 @@ import { Role } from './entities/role.entity';
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
         const dbType = (configService.get('DB_TYPE') || 'mysql') as 'mysql' | 'better-sqlite3' | 'sqlite';
+        const isSqlite = dbType === 'better-sqlite3' || dbType === 'sqlite';
+        const nodeEnv = configService.get('NODE_ENV', 'development');
+        // synchronize 仅在开发环境或 SQLite 调试时启用；
+        // 生产环境（NODE_ENV=production + MySQL）必须关闭，防止 entity 变更导致 DROP 列/表丢数据。
+        // 生产 schema 变更应使用迁移脚本（TypeORM migrations）。
+        const synchronize = isSqlite || nodeEnv !== 'production';
         const common = {
           type: dbType,
           entities: [__dirname + '/**/*.entity{.ts,.js}'],
-          synchronize: true,
+          synchronize,
           // SQL 日志默认关闭（仅在 DB_LOG=true 时开启，避免私钥等敏感信息泄露到日志）
           logging: configService.get('DB_LOG') === 'true',
         } as any;
-        if (dbType === 'better-sqlite3' || dbType === 'sqlite') {
+        if (isSqlite) {
           // 云端无 MySQL 时使用 SQLite 本地调试
           return {
             ...common,

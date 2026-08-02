@@ -111,4 +111,21 @@ export class Merchant {
 
   @OneToMany(() => Employee, (employee) => employee.merchant)
   employees: Employee[];
+
+  /**
+   * JSON 序列化时自动脱敏：私钥/APIv3密钥仅返回"已配置"占位符。
+   * 内部代码直接读取属性仍获取真实值（toJSON 仅影响 JSON.stringify）。
+   */
+  toJSON() {
+    const masked = { ...this };
+    const secretFields: (keyof Merchant)[] = [
+      'alipayPrivateKey',
+      'wechatPrivateKey',
+      'wechatApiV3Key',
+    ];
+    for (const f of secretFields) {
+      (masked as any)[f] = (this as any)[f] ? '******已配置******' : '';
+    }
+    return masked;
+  }
 }
