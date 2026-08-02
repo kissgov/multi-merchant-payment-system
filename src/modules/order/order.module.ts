@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrderController } from './order.controller';
 import { OrderService } from './order.service';
+import { OrderSchedulerService } from './order-scheduler.service';
 import { Order } from '../../entities/order.entity';
 import { Payment } from '../../entities/payment.entity';
 import { Refund } from '../../entities/refund.entity';
@@ -15,7 +16,7 @@ import { RefundModule } from '../refund/refund.module';
     RefundModule,
   ],
   controllers: [OrderController],
-  providers: [OrderService],
+  providers: [OrderService, OrderSchedulerService],
   exports: [OrderService],
 })
 export class OrderModule {}

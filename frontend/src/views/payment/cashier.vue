@@ -504,6 +504,45 @@ function clearQr() {
 // ============ 结果与记录 ============
 function showResult(success: boolean, amount: number, ch: Channel, reason = '') {
   result.value = { visible: true, success, amount, channel: ch, reason };
+  // 支付成功播放提示音
+  if (success) playSuccessSound();
+}
+
+// ============ 支付成功提示音（Web Audio API，零依赖） ============
+let audioCtx: AudioContext | null = null;
+
+function playSuccessSound() {
+  try {
+    if (!audioCtx) {
+      const AC = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AC) return;
+      audioCtx = new AC();
+    }
+    // 恢复挂起的上下文（浏览器自动播放策略）
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+
+    const now = audioCtx.currentTime;
+    // 两个连续的升调（do-sol），清脆悦耳
+    const notes = [
+      { freq: 784, start: 0, dur: 0.12 },   // G5
+      { freq: 1047, start: 0.14, dur: 0.2 }, // C6
+    ];
+    notes.forEach(({ freq, start, dur }) => {
+      const osc = audioCtx!.createOscillator();
+      const gain = audioCtx!.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, now + start);
+      gain.gain.linearRampToValueAtTime(0.3, now + start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + start + dur);
+      osc.connect(gain);
+      gain.connect(audioCtx!.destination);
+      osc.start(now + start);
+      osc.stop(now + start + dur);
+    });
+  } catch {
+    // 音频播放失败不影响主流程
+  }
 }
 
 function addRecent(orderNo: string, amount: number, ch: Channel, success: boolean) {

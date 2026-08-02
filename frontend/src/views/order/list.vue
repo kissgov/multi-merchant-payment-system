@@ -43,6 +43,7 @@
         <el-form-item>
           <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
           <el-button :icon="Refresh" @click="handleReset">重置</el-button>
+          <el-button :icon="Download" @click="handleExportCsv">导出CSV</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -189,10 +190,11 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { Search, Refresh, View } from '@element-plus/icons-vue';
+import { Search, Refresh, View, Download } from '@element-plus/icons-vue';
 import dayjs from 'dayjs';
 import { getOrderList, getOrderDetail, refundOrder, closeOrder } from '@/api/order';
 import { getStoreDropdown } from '@/api/store';
+import { exportCsv } from '@/utils/csv';
 
 interface OrderRow {
   id: string;
@@ -442,6 +444,57 @@ async function handleClose(row: OrderRow) {
     fetchList();
   } catch {
     // 错误信息由 request 拦截器统一提示
+  }
+}
+
+// CSV 导出（导出当前筛选条件下的数据，最多 10000 条）
+async function handleExportCsv() {
+  if (loading.value) return;
+  loading.value = true;
+  try {
+    const res: any = await getOrderList({
+      ...buildQuery(),
+      page: 1,
+      pageSize: 10000,
+    });
+    const rows = res?.list || [];
+    if (rows.length === 0) {
+      ElMessage.warning('暂无数据可导出');
+      return;
+    }
+    exportCsv(
+      rows.map((r: any) => ({
+        orderNo: r.orderNo || '',
+        storeName: r.store?.name || r.storeName || '',
+        cashierName: r.employee?.name || r.cashierName || r.operatorName || '',
+        paidAmount: r.paidAmount ?? r.amount ?? 0,
+        refundedAmount: r.refundedAmount ?? 0,
+        channel: channelLabel(r.paymentChannel || r.channel),
+        status: statusLabel(r.status),
+        paidAt: formatTime(r.paidAt),
+        createdAt: formatTime(r.createdAt),
+      })),
+      {
+        columns: {
+          orderNo: '订单号',
+          storeName: '门店',
+          cashierName: '收银员',
+          paidAmount: '实付金额',
+          refundedAmount: '已退金额',
+          channel: '支付渠道',
+          status: '订单状态',
+          paidAt: '支付时间',
+          createdAt: '创建时间',
+        },
+        filename: '订单列表',
+        moneyFields: ['paidAmount', 'refundedAmount'],
+      },
+    );
+    ElMessage.success(`已导出 ${rows.length} 条订单`);
+  } catch {
+    // 错误信息由 request 拦截器统一提示
+  } finally {
+    loading.value = false;
   }
 }
 

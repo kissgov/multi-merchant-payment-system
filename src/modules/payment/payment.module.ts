@@ -8,9 +8,13 @@ import { Employee } from '../../entities/employee.entity';
 import { Order } from '../../entities/order.entity';
 import { Payment } from '../../entities/payment.entity';
 import { Refund } from '../../entities/refund.entity';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Merchant, Store, Employee, Order, Payment, Refund])],
+  imports: [
+    TypeOrmModule.forFeature([Merchant, Store, Employee, Order, Payment, Refund]),
+    AuditModule,
+  ],
   controllers: [PaymentController],
   providers: [PaymentService],
   exports: [PaymentService],

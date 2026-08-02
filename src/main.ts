@@ -1,12 +1,22 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // 安全头（Helmet）：X-Content-Type-Options、X-Frame-Options、CSP 等
+  // contentSecurityPolicy 关闭以避免阻塞 Swagger UI / 前端内联脚本
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
 
   // 【全局】统一响应格式（必须在过滤器之前，确保正常/异常路径都一致包装）
   app.useGlobalInterceptors(new TransformInterceptor());

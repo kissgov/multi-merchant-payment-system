@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './modules/auth/auth.module';
 import { MerchantModule } from './modules/merchant/merchant.module';
@@ -23,6 +24,8 @@ import { Role } from './entities/role.entity';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    // 定时任务模块（订单超时自动关闭等 Cron 任务）
+    ScheduleModule.forRoot(),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {

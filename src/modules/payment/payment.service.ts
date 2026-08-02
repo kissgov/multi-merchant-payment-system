@@ -29,6 +29,8 @@ import {
 } from '../../entities/payment.entity';
 import { CreateMicropayDto, CreateQrCodeDto } from './dto/create-payment.dto';
 import { EmployeePayload } from '../../common/decorators/current-employee.decorator';
+import { AuditLogService } from '../audit/audit-log.service';
+import { AuditAction } from '../../entities/audit-log.entity';
 
 /**
  * 支付结果接口
@@ -60,6 +62,7 @@ export class PaymentService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
+    private readonly auditLogService: AuditLogService,
     @InjectRepository(Merchant)
     private readonly merchantRepo: Repository<Merchant>,
     @InjectRepository(Store)
@@ -252,6 +255,7 @@ export class PaymentService {
 
   // =============== 1. 被扫模式：商家扫用户付款码 ===============
   async micropay(emp: EmployeePayload, dto: CreateMicropayDto): Promise<PaymentResult> {
+    const startAt = Date.now();
     this.logger.log(
       `[被扫收款] 员工=${emp.name}(${emp.id}) 渠道=${dto.channel} 金额=${dto.amount} 付款码=${dto.authCode?.substring(0, 6)}***`,
     );
@@ -291,6 +295,22 @@ export class PaymentService {
         );
       }
 
+      // 审计日志：被扫收款结果
+      this.auditLogService.log({
+        module: 'payment',
+        action: AuditAction.PAYMENT,
+        description: `被扫收款 ${result.success ? '成功' : '处理中'} 订单=${order.orderNo} 渠道=${dto.channel} 金额=${dto.amount}`,
+        operator: emp,
+        merchantId: merchant.id,
+        storeId: store.id,
+        targetType: 'order',
+        targetId: order.id,
+        requestParams: { channel: dto.channel, amount: dto.amount, authCode: dto.authCode?.substring(0, 6) + '***' },
+        afterData: { status: result.status, outTradeNo: result.outTradeNo },
+        success: true,
+        startAt,
+      });
+
       return result;
     } catch (err) {
       this.logger.error(`[被扫收款] 失败: ${err.message}`, err.stack);
@@ -301,6 +321,23 @@ export class PaymentService {
         errorMessage: err.message,
       });
       await this.orderRepo.update(order.id, { status: OrderStatus.FAILED });
+
+      // 审计日志：被扫收款失败
+      this.auditLogService.log({
+        module: 'payment',
+        action: AuditAction.PAYMENT,
+        description: `被扫收款失败 订单=${order.orderNo} 渠道=${dto.channel} 金额=${dto.amount}`,
+        operator: emp,
+        merchantId: merchant.id,
+        storeId: store.id,
+        targetType: 'order',
+        targetId: order.id,
+        requestParams: { channel: dto.channel, amount: dto.amount },
+        success: false,
+        errorMessage: err.message,
+        startAt,
+      });
+
       throw new BadRequestException(err.message || '支付失败，请重试');
     }
   }
@@ -496,6 +533,7 @@ export class PaymentService {
 
   // =============== 2. 主扫模式：生成收款二维码（用户扫码） ===============
   async createQrCode(emp: EmployeePayload, dto: CreateQrCodeDto): Promise<PaymentResult> {
+    const startAt = Date.now();
     this.logger.log(
       `[主扫收款] 员工=${emp.name} 渠道=${dto.channel} 金额=${dto.amount}`,
     );
@@ -531,6 +569,21 @@ export class PaymentService {
         qrCodeUrl,
       });
 
+      // 审计日志：主扫二维码生成
+      this.auditLogService.log({
+        module: 'payment',
+        action: AuditAction.PAYMENT,
+        description: `主扫生成二维码 订单=${order.orderNo} 渠道=${dto.channel} 金额=${dto.amount}`,
+        operator: emp,
+        merchantId: merchant.id,
+        storeId: store.id,
+        targetType: 'order',
+        targetId: order.id,
+        requestParams: { channel: dto.channel, amount: dto.amount },
+        success: true,
+        startAt,
+      });
+
       return {
         success: true,
         orderId: order.id,
@@ -551,6 +604,22 @@ export class PaymentService {
         errorMessage: err.message,
       });
       await this.orderRepo.update(order.id, { status: OrderStatus.FAILED });
+
+      // 审计日志：主扫二维码生成失败
+      this.auditLogService.log({
+        module: 'payment',
+        action: AuditAction.PAYMENT,
+        description: `主扫生成二维码失败 订单=${order.orderNo} 渠道=${dto.channel} 金额=${dto.amount}`,
+        operator: emp,
+        merchantId: merchant.id,
+        storeId: store.id,
+        targetType: 'order',
+        targetId: order.id,
+        success: false,
+        errorMessage: err.message,
+        startAt,
+      });
+
       throw new BadRequestException(err.message || '生成二维码失败');
     }
   }
@@ -686,6 +755,21 @@ export class PaymentService {
         merchantNetAmount: Number((order.paidAmount - channelFee - platformFee).toFixed(2)),
         paySucceededAt: paidAt,
       });
+
+      // 审计日志：轮询确认支付成功
+      this.auditLogService.log({
+        module: 'payment',
+        action: AuditAction.PAYMENT,
+        description: `轮询确认支付成功 订单=${order.orderNo} 渠道=${p.paymentChannel} 金额=${order.paidAmount}`,
+        operator: emp,
+        merchantId: emp.merchantId,
+        storeId: order.storeId,
+        targetType: 'order',
+        targetId: order.id,
+        afterData: { status: PaymentStatus.SUCCESS, outTradeNo: queryResult.tradeNo, paidAt },
+        success: true,
+      });
+
       return {
         success: true,
         orderId: order.id,
