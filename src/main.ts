@@ -52,6 +52,8 @@ async function bootstrap() {
   SwaggerModule.setup('api-docs', app, document);
 
   const port = process.env.PORT || 3000;
+  // 优雅关闭：收到 SIGTERM/SIGINT 时先断开 DB 连接、停止定时任务再退出（PM2 reload 零丢请求）
+  app.enableShutdownHooks();
   await app.listen(port);
   console.log(`多商户支付系统已启动: http://localhost:${port}`);
 }

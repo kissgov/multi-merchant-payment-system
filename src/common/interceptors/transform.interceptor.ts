@@ -22,6 +22,7 @@ export interface ApiResponse<T = any> {
   message: string;
   data: T;
   timestamp?: string;
+  requestId?: string;
 }
 
 @Injectable()
@@ -29,6 +30,7 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
   intercept(context: ExecutionContext, next: CallHandler): Observable<ApiResponse<T>> {
     const http = context.switchToHttp();
     const res = http.getResponse<Response>();
+    const req = http.getRequest<{ requestId?: string }>();
 
     return next.handle().pipe(
       map((value) => {
@@ -46,6 +48,7 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
             message: (value as any).message,
             data: (value as any).data,
             timestamp: new Date().toISOString(),
+            requestId: req.requestId,
           };
         }
 
@@ -56,6 +59,7 @@ export class TransformInterceptor<T> implements NestInterceptor<T, ApiResponse<T
           message: 'success',
           data: value ?? null,
           timestamp: new Date().toISOString(),
+          requestId: req.requestId,
         };
       }),
     );

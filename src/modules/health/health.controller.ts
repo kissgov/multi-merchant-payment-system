@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { DataSource } from 'typeorm';
 
 /**
  * 健康检查端点
@@ -8,11 +9,21 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 @ApiTags('系统 - Health')
 @Controller('api/health')
 export class HealthController {
+  constructor(private readonly dataSource: DataSource) {}
+
   @Get()
   @ApiOperation({ summary: '健康检查' })
-  check() {
+  async check() {
+    let dbStatus: 'ok' | 'error' = 'ok';
+    try {
+      await this.dataSource.query('SELECT 1');
+    } catch {
+      dbStatus = 'error';
+    }
+
     return {
-      status: 'ok',
+      status: dbStatus === 'ok' ? 'ok' : 'degraded',
+      db: dbStatus,
       timestamp: new Date().toISOString(),
       uptime: Math.floor(process.uptime()),
       pid: process.pid,

@@ -23,7 +23,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    const request = ctx.getRequest<Request>();
+    const request = ctx.getRequest<Request & { requestId?: string }>();
+    const requestId = request.requestId || '-';
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let code = HttpStatus.INTERNAL_SERVER_ERROR;
@@ -49,7 +50,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     } else if (exception instanceof QueryFailedError) {
       // 数据库异常：记录详细日志但对外隐藏敏感信息
       this.logger.error(
-        `[DB] ${(exception as any).code || 'UNKNOWN'}: ${exception.message}`,
+        `[${requestId}] [DB] ${(exception as any).code || 'UNKNOWN'}: ${exception.message}`,
         (exception as any).stack,
       );
       message = '数据操作失败，请重试';
@@ -57,11 +58,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       status = HttpStatus.BAD_REQUEST;
     } else if (exception instanceof Error) {
       this.logger.error(
-        `[Unhandled] ${exception.name}: ${exception.message}`,
+        `[${requestId}] [Unhandled] ${exception.name}: ${exception.message}`,
         exception.stack,
       );
     } else {
-      this.logger.error(`[UnknownException] ${JSON.stringify(exception)}`);
+      this.logger.error(`[${requestId}] [UnknownException] ${JSON.stringify(exception)}`);
     }
 
     response.status(status).json({
@@ -70,6 +71,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       data: null,
       path: request.url,
       timestamp: new Date().toISOString(),
+      requestId,
     });
   }
 }

@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { AuthModule } from './modules/auth/auth.module';
 import { MerchantModule } from './modules/merchant/merchant.module';
 import { StoreModule } from './modules/store/store.module';
@@ -107,4 +108,9 @@ import { Role } from './entities/role.entity';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // 请求链路追踪：为每个请求生成/转发 X-Request-Id
+    consumer.apply(RequestIdMiddleware).forRoutes('*');
+  }
+}

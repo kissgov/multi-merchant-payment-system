@@ -24,6 +24,7 @@ interface ApiResponse<T = any> {
   data: T;
   path?: string;
   timestamp?: string;
+  requestId?: string;
 }
 
 const service: AxiosInstance = axios.create({
@@ -168,7 +169,14 @@ service.interceptors.response.use(
       } else if (status === 400) {
         if (config?.showError !== false) ElMessage.error(message);
       } else if (status >= 500) {
-        if (config?.showError !== false) ElMessage.error('服务器异常，请稍后重试');
+        const requestId = (data as any)?.requestId;
+        if (config?.showError !== false) {
+          ElMessage.error(
+            requestId
+              ? `服务器异常（追踪号: ${requestId}），请联系客服`
+              : '服务器异常，请稍后重试',
+          );
+        }
       } else if (config?.showError !== false) {
         ElMessage.error(message);
       }
