@@ -219,6 +219,7 @@ export class RbacService implements OnModuleInit {
   async onModuleInit() {
     try {
       await this.seedMenus();
+      await this.repairMenuParents();
       await this.seedBuiltinRoles();
     } catch (e) {
       this.logger.error(`[RBAC初始化] 失败: ${e.message}`);
@@ -255,7 +256,9 @@ export class RbacService implements OnModuleInit {
         linkUrl: node.linkUrl || null,
         remark: node.title || '',
         isPlatform: !!node.isPlatform,
-        parent: parentId ? ({ id: parentId } as any) : null,
+        // 直接设置 parentId 列，避免与 @ManyToOne parent 同时存在时 TypeORM
+        // 优先按显式 @Column 入库为 NULL 的坑（会导致 buildTree 退化为扁平列表）
+        parentId: parentId || null,
       });
       const saved = await this.menuRepo.save(entity);
       allMenuIds[permKey] = saved.id;
@@ -271,6 +274,48 @@ export class RbacService implements OnModuleInit {
       await createNode(top);
     }
     this.logger.log(`[菜单初始化] 完成，创建菜单权限共 ${Object.keys(allMenuIds).length} 项`);
+  }
+
+  /**
+   * 修复已有菜单的 parentId。
+   * 历史问题：旧版 createNode 用 `parent:{id}` 关联对象设置父子关系，但 Menu 实体同时
+   * 声明了显式 `@Column parentId`，TypeORM 入库时按显式列写入 NULL，导致 DB 中 parentId
+   * 全为 NULL，buildTree 退化为扁平列表，前端目录型路由（/dashboard /order /refund 等）
+   * 拿不到 children → 渲染空白页。
+   * 此方法按 MENU_SEED_DEFINITION 重建父子关系，幂等，每次启动执行一次。
+   */
+  private async repairMenuParents() {
+    // 1. 从种子定义构建 permKey -> parentPermKey
+    const expectedParent = new Map<string, string | null>();
+    const walk = (nodes: any[], parentPermKey: string | null) => {
+      for (const n of nodes || []) {
+        if (!n?.permKey) continue;
+        expectedParent.set(n.permKey, parentPermKey);
+        walk(n.children, n.permKey);
+      }
+    };
+    walk(MENU_SEED_DEFINITION as any, null);
+
+    // 2. 加载全部菜单，建立 permKey -> entity
+    const all = await this.menuRepo.find();
+    const byPermKey = new Map<string, Menu>();
+    for (const m of all) byPermKey.set(m.permKey, m);
+
+    // 3. 比对并修复不一致的 parentId
+    let fixed = 0;
+    for (const m of all) {
+      const parentPermKey = expectedParent.get(m.permKey);
+      const expectedPid = parentPermKey
+        ? byPermKey.get(parentPermKey)?.id ?? null
+        : null;
+      if (m.parentId !== expectedPid) {
+        await this.menuRepo.update(m.id, { parentId: expectedPid });
+        fixed++;
+      }
+    }
+    if (fixed > 0) {
+      this.logger.log(`[菜单修复] 重建 parentId 完成，共修正 ${fixed} 条`);
+    }
   }
 
   // ============== 内置角色初始化 ==============
