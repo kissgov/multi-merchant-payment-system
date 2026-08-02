@@ -34,6 +34,7 @@ import { EmployeePayload } from '../../common/decorators/current-employee.decora
 import { AuditLogService } from '../audit/audit-log.service';
 import { AuditAction } from '../../entities/audit-log.entity';
 import { WechatPayV3Client, WechatPayConfig } from './wechat-pay-v3.client';
+import { pessimisticWriteLock } from '../../common/utils/sql-dialect';
 
 /**
  * 支付结果接口
@@ -1262,7 +1263,7 @@ export class PaymentService {
         await this.dataSource.transaction(async (mgr) => {
           const lockedOrder = await mgr.findOne(Order, {
             where: { id: refund.orderId },
-            lock: { mode: 'pessimistic_write' as any },
+            lock: pessimisticWriteLock(),
           });
           if (!lockedOrder) throw new Error('订单不存在');
 

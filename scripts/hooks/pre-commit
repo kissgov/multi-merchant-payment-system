@@ -1,0 +1,28 @@
+#!/bin/sh
+# 质量门禁（pre-commit）
+# 目标：在提交前拦截类型错误，保持主分支可编译。完整测试见 `npm run precheck`。
+# 设计取舍：仅做类型检查（nest build，约 2-3s），不跑全量 jest（约 10s+），
+# 避免阻塞日常提交；推送前请手动执行 `npm run precheck`。
+
+# 跳过 merge / rebase 等非正常提交场景
+if [ -f ".git/MERGE_HEAD" ] || [ -d ".git/rebase-merge" ] || [ -d ".git/rebase-apply" ]; then
+  exit 0
+fi
+
+# 仅当存在暂存的 .ts 文件时才执行检查，纯文档/配置变更快速放行
+TS_STAGED=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.ts$' || true)
+if [ -z "$TS_STAGED" ]; then
+  exit 0
+fi
+
+echo "▶ pre-commit: 类型检查 (nest build)..."
+npm run build --silent
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "✗ 类型检查失败，提交已阻止。请修复错误后重试。"
+  echo "  跳过本次检查（不推荐）: git commit --no-verify"
+  exit 1
+fi
+
+echo "✓ 类型检查通过"
+exit 0

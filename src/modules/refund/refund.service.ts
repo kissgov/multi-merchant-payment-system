@@ -23,6 +23,7 @@ import { AuditLogService, AuditAction } from '../audit/audit-log.service';
 import { RbacService } from '../rbac/rbac.service';
 import { PaymentService } from '../payment/payment.service';
 import { parsePagination } from '../../common/utils/page';
+import { pessimisticWriteLock } from '../../common/utils/sql-dialect';
 
 export interface CreateRefundDto {
   orderId: string;
@@ -155,7 +156,7 @@ export class RefundService {
       // 悲观锁锁定订单行，防止并发退款超出可退金额
       const lockedOrder = await mgr.findOne(Order, {
         where: { id: order.id },
-        lock: { mode: 'pessimistic_write' as any },
+        lock: pessimisticWriteLock(),
       });
       if (!lockedOrder) throw new NotFoundException('订单不存在');
 
@@ -373,7 +374,7 @@ export class RefundService {
       // 悲观锁锁定订单行
       const lockedOrder = await mgr.findOne(Order, {
         where: { id: order.id },
-        lock: { mode: 'pessimistic_write' as any },
+        lock: pessimisticWriteLock(),
       });
       if (!lockedOrder) throw new NotFoundException('订单不存在');
 

@@ -29,3 +29,18 @@ export const dateHourExpr = (column: string): string =>
   isSqlite()
     ? `strftime('%Y-%m-%d %H:00', ${column})`
     : `DATE_FORMAT(${column}, '%Y-%m-%d %H:00')`;
+
+/**
+ * 返回悲观写锁选项（用于 TypeORM findOne 的 lock 参数）。
+ *
+ * 跨库兼容设计：
+ * - MySQL（生产）：返回 `{ mode: 'pessimistic_write' }`，行级锁防止并发退款超退。
+ * - SQLite（测试/云端调试）：返回 `undefined`。SQLite 事务天然串行化，
+ *   「事务内重新读取 refundedAmount 并二次校验」的逻辑在串行化下已足够安全；
+ *   且 better-sqlite3 驱动不支持悲观锁，传锁会抛 LockNotSupportedOnGivenDriverError。
+ *
+ * 调用方需配合事务内二次校验使用：锁只保证读取到提交点稳定，真正的防超退
+ * 依赖事务内重新计算 currentRemaining 并校验。
+ */
+export const pessimisticWriteLock = (): { mode: 'pessimistic_write' } | undefined =>
+  isSqlite() ? undefined : { mode: 'pessimistic_write' };
