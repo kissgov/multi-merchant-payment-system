@@ -15,6 +15,7 @@ import {
   PermissionsMode,
 } from '../decorators/require-permissions.decorator';
 import { ROLES_KEY } from '../decorators/roles.decorator';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { Employee, EmployeeRole } from '../../entities/employee.entity';
 import { Role } from '../../entities/role.entity';
 import { Menu } from '../../entities/menu.entity';
@@ -143,6 +144,15 @@ export class PermissionGuard implements CanActivate {
   ];
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // @Public() 装饰器标记的接口直接放行（与健康检查、支付回调等公开接口一致）
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) {
+      return true;
+    }
+
     const req = context.switchToHttp().getRequest();
     // 公开路由白名单（登录接口等）直接放行
     if (PermissionGuard.PUBLIC_PATHS.some((p) => req.path === p || req.path.startsWith(p + '/'))) {

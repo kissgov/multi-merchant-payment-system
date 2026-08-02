@@ -21,6 +21,7 @@ import {
   EmployeePayload,
 } from '../../common/decorators/current-employee.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { EmployeeRole } from '../../entities/employee.entity';
 
 @ApiTags('支付模块 - Payment（前台核心）')
@@ -95,6 +96,7 @@ export class PaymentController {
 
   // ============ 支付回调：支付宝 ============
   @Post('notify/alipay')
+  @Public()
   @HttpCode(200)
   @ApiOperation({ summary: '支付宝支付回调通知（公网可访问）', description: '不需要登录' })
   async alipayNotify(@Req() req: Request, @Res() res: Response, @Body() body: any) {
@@ -116,6 +118,7 @@ export class PaymentController {
 
   // ============ 支付回调：微信 ============
   @Post('notify/wechat')
+  @Public()
   @HttpCode(200)
   @ApiOperation({ summary: '微信支付回调通知（公网可访问）', description: '不需要登录' })
   async wechatNotify(@Req() req: Request, @Res() res: Response, @Body() body: any) {
@@ -132,6 +135,7 @@ export class PaymentController {
 
   // ============ 支付回调：微信退款 ============
   @Post('notify/wechat/refund')
+  @Public()
   @HttpCode(200)
   @ApiOperation({ summary: '微信退款回调通知', description: '不需要登录' })
   async wechatRefundNotify(@Req() req: Request, @Res() res: Response, @Body() body: any) {

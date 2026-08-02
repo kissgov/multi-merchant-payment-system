@@ -1,12 +1,14 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { DataSource } from 'typeorm';
+import { Public } from '../../common/decorators/public.decorator';
 
 /**
  * 健康检查端点
- * 用于 PM2 / Nginx / Docker 健康探测，无需认证（已在 JwtAuthGuard 白名单中放行）
+ * 用于 PM2 / Nginx / Docker 健康探测，无需认证
  */
 @ApiTags('系统 - Health')
+@Public()
 @Controller('api/health')
 export class HealthController {
   constructor(private readonly dataSource: DataSource) {}

@@ -56,9 +56,10 @@ import { Role } from './entities/role.entity';
         } as any;
         if (isSqlite) {
           // 云端无 MySQL 时使用 SQLite 本地调试
+          // better-sqlite3 性能更好且同步 API 更稳定；sqlite3 需要额外 native 编译
           return {
             ...common,
-            type: 'sqlite' as const,
+            type: 'better-sqlite3' as const,
             database: configService.get('DB_DATABASE') || './data/payment.db',
           };
         }
