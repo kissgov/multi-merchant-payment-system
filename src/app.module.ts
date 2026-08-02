@@ -44,7 +44,8 @@ import { Role } from './entities/role.entity';
           type: dbType,
           entities: [__dirname + '/**/*.entity{.ts,.js}'],
           synchronize: true,
-          logging: configService.get('DB_LOG') === 'false' ? false : true,
+          // SQL 日志默认关闭（仅在 DB_LOG=true 时开启，避免私钥等敏感信息泄露到日志）
+          logging: configService.get('DB_LOG') === 'true',
         } as any;
         if (dbType === 'better-sqlite3' || dbType === 'sqlite') {
           // 云端无 MySQL 时使用 SQLite 本地调试

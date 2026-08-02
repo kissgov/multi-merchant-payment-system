@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, In, Between, Brackets } from 'typeorm';
 import * as dayjs from 'dayjs';
+import * as crypto from 'crypto';
 
 import { Order, OrderStatus } from '../../entities/order.entity';
 import { PaymentChannel } from '../../entities/enums';
@@ -127,48 +128,76 @@ export class RefundService {
     const needAudit =
       reasonDef.needApprove || refundAmount >= REFUND_APPROVAL_THRESHOLD;
 
-    // 7. 执行
-    const refundNo = `R${dayjs().format('YYYYMMDDHHmmss')}${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`;
+    // 7. 生成退款单号（使用 crypto.randomBytes 替代 Math.random）
+    const refundNo = `R${dayjs().format('YYYYMMDDHHmmss')}${crypto.randomBytes(4).toString('hex')}`;
     const merchant = await this.merchantRepo.findOneOrFail({ where: { id: emp.merchantId } });
 
+    // 8. 如果无需审批，先在事务外调用渠道退款（避免长时间占用 DB 连接）
+    let channelRefundNo: string | undefined;
+    let channelError: string | undefined;
+
+    if (!needAudit) {
+      try {
+        if (order.paymentChannel === PaymentChannel.ALIPAY) {
+          channelRefundNo = await this.callAlipayRefund(merchant, order, refundAmount, refundNo);
+        } else {
+          channelRefundNo = await this.callWechatRefund(
+            merchant, order, refundAmount, refundNo,
+          );
+        }
+      } catch (e) {
+        channelError = e.message;
+      }
+    }
+
+    // 9. 事务内创建退款记录 + 更新订单（使用悲观锁防并发超退）
     return this.dataSource.transaction(async (mgr) => {
+      // 悲观锁锁定订单行，防止并发退款超出可退金额
+      const lockedOrder = await mgr.findOne(Order, {
+        where: { id: order.id },
+        lock: { mode: 'pessimistic_write' as any },
+      });
+      if (!lockedOrder) throw new NotFoundException('订单不存在');
+
+      // 重新校验可退金额（锁定后读取最新值）
+      const currentRefunded = Number(lockedOrder.refundedAmount || 0);
+      const currentRemaining = Number(
+        (Number(lockedOrder.paidAmount) - currentRefunded).toFixed(2),
+      );
+      if (refundAmount > currentRemaining) {
+        throw new BadRequestException(`退款金额超限，可退款￥${currentRemaining}（可能已被其他退款占用）`);
+      }
+
       const refund = mgr.create(Refund, {
         refundNo,
         orderId: order.id,
         operatorId: emp.id,
         paymentChannel: order.paymentChannel,
-        status: needAudit ? RefundStatus.PENDING : RefundStatus.PROCESSING,
+        status: needAudit
+          ? RefundStatus.PENDING
+          : channelError
+            ? RefundStatus.FAILED
+            : RefundStatus.SUCCESS,
         originalOrderAmount: order.paidAmount,
         refundAmount,
         reasonCode: dto.reasonCode,
         reason: dto.reason + (dto.evidenceImages ? ` 凭证:${dto.evidenceImages.join(',')}` : ''),
         refundInitiatedAt: new Date(),
+        outRefundNo: channelRefundNo,
+        errorCode: channelError ? 'CHANNEL_ERROR' : undefined,
+        errorMessage: channelError,
+        refundSucceededAt: needAudit || channelError ? undefined : new Date(),
       });
       const saved = await mgr.save(refund);
 
       let workflowStatus: RefundWorkflowStatus;
       if (needAudit) {
         workflowStatus = RefundWorkflowStatus.PENDING_AUDIT;
+      } else if (channelError) {
+        // 渠道退款失败，不更新订单金额
+        workflowStatus = RefundWorkflowStatus.FAILED;
       } else {
-        // 无需审批 → 直接调用渠道退款
-        let ok = true;
-        let outRefundNo: string | undefined;
-        try {
-          if (order.paymentChannel === PaymentChannel.ALIPAY) {
-            outRefundNo = await this.callAlipayRefund(merchant, order, refundAmount, refundNo);
-          } else {
-            outRefundNo = await this.callWechatRefund(merchant, order, refundAmount, refundNo);
-          }
-        } catch (e) {
-          ok = false;
-          await mgr.update(Refund, saved.id, {
-            status: RefundStatus.FAILED,
-            errorCode: 'CHANNEL_ERROR',
-            errorMessage: e.message,
-          });
-          throw new BadRequestException(`渠道退款失败: ${e.message}`);
-        }
-        await this.applyRefundSuccess(mgr, order, saved, refundAmount, outRefundNo);
+        await this.applyRefundSuccess(mgr, lockedOrder, saved, refundAmount, channelRefundNo!);
         workflowStatus = RefundWorkflowStatus.SUCCESS;
       }
 
@@ -307,32 +336,56 @@ export class RefundService {
       return { workflowStatus: RefundWorkflowStatus.AUDIT_REJECTED, message: '已驳回' };
     }
 
-    // 审批通过：真正调用渠道
+    // 审批通过：先在事务外调用渠道退款（避免长时间占用 DB 连接）
     const order = (refund as any).order as Order;
     const merchant = await this.merchantRepo.findOneOrFail({ where: { id: emp.merchantId } });
-    return this.dataSource.transaction(async (mgr) => {
-      await mgr.update(Refund, refundId, { status: RefundStatus.PROCESSING });
-      let ok = true;
-      let outRefundNo: string | undefined;
-      try {
-        if (refund.paymentChannel === PaymentChannel.ALIPAY) {
-          outRefundNo = await this.callAlipayRefund(merchant, order, Number(refund.refundAmount), refund.refundNo);
-        } else {
-          outRefundNo = await this.callWechatRefund(merchant, order, Number(refund.refundAmount), refund.refundNo);
-        }
-      } catch (e) {
-        ok = false;
-        await mgr.update(Refund, refundId, { status: RefundStatus.FAILED, errorCode: 'CHANNEL_ERROR', errorMessage: e.message });
-        throw new BadRequestException(`渠道退款失败: ${e.message}`);
+
+    let channelRefundNo: string | undefined;
+    let channelError: string | undefined;
+    try {
+      if (refund.paymentChannel === PaymentChannel.ALIPAY) {
+        channelRefundNo = await this.callAlipayRefund(merchant, order, Number(refund.refundAmount), refund.refundNo);
+      } else {
+        channelRefundNo = await this.callWechatRefund(merchant, order, Number(refund.refundAmount), refund.refundNo);
       }
-      await this.applyRefundSuccess(mgr, order, refund, Number(refund.refundAmount), outRefundNo);
+    } catch (e) {
+      channelError = e.message;
+    }
+
+    // 事务内更新状态（使用悲观锁防并发）
+    return this.dataSource.transaction(async (mgr) => {
+      if (channelError) {
+        await mgr.update(Refund, refundId, {
+          status: RefundStatus.FAILED,
+          errorCode: 'CHANNEL_ERROR',
+          errorMessage: channelError,
+        });
+        await this.audit.log({
+          module: 'refund', action: AuditAction.APPROVE,
+          description: `审批通过但渠道退款失败: ${channelError}`,
+          operator: emp, merchantId: emp.merchantId, storeId: order.storeId,
+          targetType: 'refund', targetId: refundId,
+          success: false, errorMessage: channelError, startAt,
+        });
+        throw new BadRequestException(`渠道退款失败: ${channelError}`);
+      }
+
+      // 悲观锁锁定订单行
+      const lockedOrder = await mgr.findOne(Order, {
+        where: { id: order.id },
+        lock: { mode: 'pessimistic_write' as any },
+      });
+      if (!lockedOrder) throw new NotFoundException('订单不存在');
+
+      await mgr.update(Refund, refundId, { status: RefundStatus.SUCCESS, outRefundNo: channelRefundNo, refundSucceededAt: new Date() });
+      await this.applyRefundSuccess(mgr, lockedOrder, refund, Number(refund.refundAmount), channelRefundNo);
       await this.audit.log({
         module: 'refund', action: AuditAction.APPROVE,
         description: `审批通过并完成退款￥${refund.refundAmount}`,
         operator: emp, merchantId: emp.merchantId, storeId: (refund as any).order.storeId,
         targetType: 'refund', targetId: refundId,
-        afterData: { outRefundNo },
-        ip, userAgent: ua, success: ok, startAt,
+        afterData: { channelRefundNo },
+        ip, userAgent: ua, success: true, startAt,
       });
       return { workflowStatus: RefundWorkflowStatus.SUCCESS, message: '退款成功' };
     });

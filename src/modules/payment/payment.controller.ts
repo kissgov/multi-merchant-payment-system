@@ -136,8 +136,11 @@ export class PaymentController {
   @ApiOperation({ summary: '微信退款回调通知', description: '不需要登录' })
   async wechatRefundNotify(@Req() req: Request, @Res() res: Response, @Body() body: any) {
     this.paymentService.logger.log(`[微信退款回调] 收到通知: event_type=${body?.event_type}`);
-    // 退款回调处理逻辑类似支付回调，解密后更新退款状态
-    // 当前实现中退款状态由同步调用结果决定，回调作为异步补充
-    res.json({ code: 'SUCCESS', message: 'OK' });
+    const result = await this.paymentService.handleWechatRefundNotify(body, req.headers);
+    if (result.code === 'SUCCESS') {
+      res.json({ code: 'SUCCESS', message: 'OK' });
+    } else {
+      res.status(500).json({ code: 'FAIL', message: result.message });
+    }
   }
 }

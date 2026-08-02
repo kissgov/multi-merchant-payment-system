@@ -16,7 +16,7 @@ import { AuditModule } from '../audit/audit.module';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get('JWT_SECRET', 'payment-system-secret-key-change-in-production'),
+        secret: configService.get<string>('JWT_SECRET') || (() => { throw new Error('FATAL: JWT_SECRET 未设置，拒绝启动'); })(),
         signOptions: {
           expiresIn: configService.get('JWT_EXPIRES_IN', '24h'),
         },

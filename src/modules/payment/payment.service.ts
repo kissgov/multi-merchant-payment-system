@@ -12,6 +12,7 @@ import * as AlipayFormData from 'alipay-sdk/lib/form';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 import * as dayjs from 'dayjs';
+import * as crypto from 'crypto';
 
 import { Merchant } from '../../entities/merchant.entity';
 import { Store } from '../../entities/store.entity';
@@ -27,6 +28,7 @@ import {
   PaymentStatus,
   PaymentMethod,
 } from '../../entities/payment.entity';
+import { Refund, RefundStatus } from '../../entities/refund.entity';
 import { CreateMicropayDto, CreateQrCodeDto } from './dto/create-payment.dto';
 import { EmployeePayload } from '../../common/decorators/current-employee.decorator';
 import { AuditLogService } from '../audit/audit-log.service';
@@ -79,9 +81,8 @@ export class PaymentService {
   // =============== 工具：生成订单号 ===============
   private generateOrderNo(prefix: string): string {
     const now = dayjs().format('YYYYMMDDHHmmss');
-    const random = Math.floor(Math.random() * 1000000)
-      .toString()
-      .padStart(6, '0');
+    // 使用 crypto.randomBytes 替代 Math.random，避免高并发下碰撞
+    const random = crypto.randomBytes(3).toString('hex');
     return `${prefix}${now}${random}`;
   }
 
@@ -138,6 +139,17 @@ export class PaymentService {
         ? 'https://openapi-sandbox.dl.alipaydev.com/gateway.do'
         : 'https://openapi.alipay.com/gateway.do',
     });
+  }
+
+  // =============== 工具：获取支付回调地址 ===============
+  private getNotifyUrl(path: string): string {
+    const baseUrl = this.configService.get<string>('PAYMENT_NOTIFY_BASE_URL');
+    if (!baseUrl || baseUrl.includes('your-domain') || baseUrl.includes('your-public')) {
+      throw new InternalServerErrorException(
+        'PAYMENT_NOTIFY_BASE_URL 未配置或为占位符，请在 .env 中设置公网 HTTPS 域名',
+      );
+    }
+    return `${baseUrl}${path}`;
   }
 
   // =============== 工具：获取微信支付V3客户端 ===============
@@ -376,10 +388,7 @@ export class PaymentService {
   ): Promise<PaymentResult> {
     const alipaySdk = this.getAlipayInstance(merchant, store);
 
-    const notifyUrl = `${this.configService.get(
-      'PAYMENT_NOTIFY_BASE_URL',
-      'https://your-domain.com',
-    )}/api/payment/notify/alipay`;
+    const notifyUrl = this.getNotifyUrl('/api/payment/notify/alipay');
 
     const bizContent = {
       out_trade_no: order.orderNo,
@@ -477,10 +486,7 @@ export class PaymentService {
     authCode: string,
   ): Promise<PaymentResult> {
     const wxClient = this.getWechatClient(merchant, store);
-    const notifyUrl = `${this.configService.get(
-      'PAYMENT_NOTIFY_BASE_URL',
-      'https://your-domain.com',
-    )}/api/payment/notify/wechat`;
+    const notifyUrl = this.getNotifyUrl('/api/payment/notify/wechat');
 
     this.logger.debug(
       `[微信被扫] 订单=${order.orderNo} 金额=${order.paidAmount} 付款码=${authCode.substring(0, 6)}***`,
@@ -641,10 +647,7 @@ export class PaymentService {
     order: Order,
   ): Promise<string> {
     const alipaySdk = this.getAlipayInstance(merchant, store);
-    const notifyUrl = `${this.configService.get(
-      'PAYMENT_NOTIFY_BASE_URL',
-      'https://your-domain.com',
-    )}/api/payment/notify/alipay`;
+    const notifyUrl = this.getNotifyUrl('/api/payment/notify/alipay');
 
     const bizContent = {
       out_trade_no: order.orderNo,
@@ -678,10 +681,7 @@ export class PaymentService {
     order: Order,
   ): Promise<string> {
     const wxClient = this.getWechatClient(merchant, store);
-    const notifyUrl = `${this.configService.get(
-      'PAYMENT_NOTIFY_BASE_URL',
-      'https://your-domain.com',
-    )}/api/payment/notify/wechat`;
+    const notifyUrl = this.getNotifyUrl('/api/payment/notify/wechat');
 
     this.logger.debug(`[微信主扫] 订单=${order.orderNo} 金额=${order.paidAmount}`);
 
@@ -897,10 +897,7 @@ export class PaymentService {
     reason?: string,
   ): Promise<string> {
     const wxClient = this.getWechatClient(merchant, store || undefined);
-    const notifyUrl = `${this.configService.get(
-      'PAYMENT_NOTIFY_BASE_URL',
-      'https://your-domain.com',
-    )}/api/payment/notify/wechat/refund`;
+    const notifyUrl = this.getNotifyUrl('/api/payment/notify/wechat/refund');
 
     this.logger.log(`[微信退款] 订单=${orderNo} 退款金额=${refundAmount} 退款单号=${refundNo}`);
 
@@ -925,53 +922,60 @@ export class PaymentService {
   /** 处理支付宝回调 */
   async handleAlipayNotify(params: any): Promise<boolean> {
     try {
-      // 验签
-      const alipaySdk = this.getAlipayInstance(
-        await this.merchantRepo.findOneOrFail({ where: { id: params.merchantId || '' } }),
-      );
-      // 支付宝回调验签 SDK 3.x 使用 checkNotifySign
+      const orderNo = params.out_trade_no;
+      if (!orderNo) {
+        this.logger.warn('[支付宝回调] 缺少 out_trade_no');
+        return false;
+      }
+
+      // 1) 通过订单号查找订单 → 找到商户 → 用商户公钥验签
+      const order = await this.orderRepo.findOne({ where: { orderNo } });
+      if (!order) {
+        this.logger.warn(`[支付宝回调] 订单不存在: ${orderNo}`);
+        return true; // 返回 success 避免重复通知
+      }
+
+      const merchant = await this.merchantRepo.findOneOrFail({ where: { id: order.merchantId } });
+      const alipaySdk = this.getAlipayInstance(merchant);
+
+      // 2) 验签（防止伪造回调）
       const signVerified = alipaySdk.checkNotifySign(params);
       if (!signVerified) {
-        this.logger.warn(`[支付宝回调] 验签失败`);
+        this.logger.warn(`[支付宝回调] 验签失败 订单=${orderNo}`);
         return false;
       }
 
       const tradeStatus = params.trade_status;
-      const orderNo = params.out_trade_no;
 
       if (tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED') {
-        const order = await this.orderRepo.findOne({ where: { orderNo } });
-        if (!order) {
-          this.logger.warn(`[支付宝回调] 订单不存在: ${orderNo}`);
-          return true; // 返回 success 避免微信重复通知
-        }
-
-        if (order.status === OrderStatus.PAID) {
-          this.logger.log(`[支付宝回调] 订单已支付，跳过: ${orderNo}`);
+        // 3) 乐观锁：仅当 status=pending 时才更新，防止并发重复处理
+        const result = await this.orderRepo.update(
+          { id: order.id, status: OrderStatus.PENDING },
+          { status: OrderStatus.PAID, paidAt: new Date(params.gmt_payment || new Date()) },
+        );
+        if (result.affected === 0) {
+          this.logger.log(`[支付宝回调] 订单已处理，跳过: ${orderNo}`);
           return true;
         }
 
-        const paidAt = new Date(params.gmt_payment || new Date());
-        const merchant = await this.merchantRepo.findOneOrFail({ where: { id: order.merchantId } });
         const channelFee = Number((order.paidAmount * 0.0038).toFixed(2));
         const platformFee = Number(
           (order.paidAmount * (merchant.platformFeeRate || 0)).toFixed(2),
         );
 
-        await this.orderRepo.update(order.id, { status: OrderStatus.PAID, paidAt });
-        const payment = await this.paymentRepo.findOne({ where: { orderId: order.id } });
-        if (payment) {
-          await this.paymentRepo.update(payment.id, {
+        await this.paymentRepo.update(
+          { orderId: order.id },
+          {
             status: PaymentStatus.SUCCESS,
             outTradeNo: params.trade_no,
             payerAccount: params.buyer_logon_id,
             payerName: params.buyer_user_name,
             channelFee,
             merchantNetAmount: Number((order.paidAmount - channelFee - platformFee).toFixed(2)),
-            paySucceededAt: paidAt,
+            paySucceededAt: new Date(params.gmt_payment || new Date()),
             responsePayload: JSON.stringify(params),
-          });
-        }
+          },
+        );
 
         this.logger.log(`[支付宝回调] 处理成功 订单=${orderNo} 交易号=${params.trade_no}`);
       }
@@ -995,28 +999,45 @@ export class PaymentService {
         return { code: 'FAIL', message: '无 resource 数据' };
       }
 
-      // 微信回调时还不知道是哪个商户，需要遍历所有配置了微信支付的商户来解密
-      // 生产环境建议在商户表增加微信平台证书序列号字段，通过回调 header 中的 Wechatpay-Serial 匹配
+      // 1) 验签：使用微信回调 headers 中的时间戳、随机串、签名和平台证书序列号
+      const timestamp = headers['wechatpay-timestamp'] as string;
+      const nonce = headers['wechatpay-nonce'] as string;
+      const signature = headers['wechatpay-signature'] as string;
+      const serial = headers['wechatpay-serial'] as string;
+
+      // 2) 遍历商户解密通知（APIv3 密钥是商户级）
       const merchants = await this.merchantRepo.find({
         where: { wechatApiV3Key: MoreThan('') as any },
       });
 
       let decrypted: any = null;
       let matchedMerchant: Merchant | null = null;
+      let matchedClient: WechatPayV3Client | null = null;
 
       for (const m of merchants) {
         if (!m.wechatApiV3Key) continue;
         try {
           const wxClient = this.getWechatClient(m);
+
+          // 先验签（如果有序书缓存），验签失败直接跳过此商户
+          if (timestamp && nonce && signature && serial) {
+            const bodyStr = JSON.stringify(body);
+            const signOk = wxClient.verifyNotifySignature(timestamp, nonce, bodyStr, signature, serial);
+            if (!signOk) {
+              this.logger.warn(`[微信回调] 验签失败 商户=${m.id} serial=${serial}`);
+              continue;
+            }
+          }
+
           decrypted = wxClient.decryptNotifyResource(
             resource.ciphertext,
             resource.nonce,
             resource.associated_data,
           );
           matchedMerchant = m;
+          matchedClient = wxClient;
           break;
         } catch {
-          // 密钥不匹配，尝试下一个商户
           continue;
         }
       }
@@ -1036,19 +1057,23 @@ export class PaymentService {
         return { code: 'SUCCESS', message: 'OK' };
       }
 
-      if (order.status === OrderStatus.PAID) {
-        this.logger.log(`[微信回调] 订单已支付，跳过: ${orderNo}`);
-        return { code: 'SUCCESS', message: 'OK' };
-      }
-
       if (decrypted.trade_state === 'SUCCESS') {
+        // 3) 乐观锁：仅当 status=pending 时才更新，防止并发重复处理
         const paidAt = new Date(decrypted.success_time || new Date());
+        const result = await this.orderRepo.update(
+          { id: order.id, status: OrderStatus.PENDING },
+          { status: OrderStatus.PAID, paidAt },
+        );
+        if (result.affected === 0) {
+          this.logger.log(`[微信回调] 订单已处理，跳过: ${orderNo}`);
+          return { code: 'SUCCESS', message: 'OK' };
+        }
+
         const channelFee = Number((order.paidAmount * 0.0038).toFixed(2));
         const platformFee = Number(
           (order.paidAmount * (matchedMerchant.platformFeeRate || 0)).toFixed(2),
         );
 
-        await this.orderRepo.update(order.id, { status: OrderStatus.PAID, paidAt });
         if (order.payment) {
           await this.paymentRepo.update(order.payment.id, {
             status: PaymentStatus.SUCCESS,
@@ -1067,6 +1092,135 @@ export class PaymentService {
       return { code: 'SUCCESS', message: 'OK' };
     } catch (err) {
       this.logger.error(`[微信回调] 处理异常: ${err.message}`, err.stack);
+      return { code: 'FAIL', message: err.message };
+    }
+  }
+
+  /** 处理微信退款回调 */
+  async handleWechatRefundNotify(body: any, headers: any): Promise<{ code: string; message: string }> {
+    try {
+      const { resource } = body;
+      if (!resource) {
+        return { code: 'FAIL', message: '无 resource 数据' };
+      }
+
+      // 1) 验签 headers
+      const timestamp = headers['wechatpay-timestamp'] as string;
+      const nonce = headers['wechatpay-nonce'] as string;
+      const signature = headers['wechatpay-signature'] as string;
+      const serial = headers['wechatpay-serial'] as string;
+
+      // 2) 遍历商户解密退款通知（APIv3 密钥是商户级）
+      const merchants = await this.merchantRepo.find({
+        where: { wechatApiV3Key: MoreThan('') as any },
+      });
+
+      let decrypted: any = null;
+
+      for (const m of merchants) {
+        if (!m.wechatApiV3Key) continue;
+        try {
+          const wxClient = this.getWechatClient(m);
+          // 验签（有证书缓存时校验，失败跳过此商户）
+          if (timestamp && nonce && signature && serial) {
+            const bodyStr = JSON.stringify(body);
+            const signOk = wxClient.verifyNotifySignature(timestamp, nonce, bodyStr, signature, serial);
+            if (!signOk) {
+              this.logger.warn(`[微信退款回调] 验签失败 商户=${m.id} serial=${serial}`);
+              continue;
+            }
+          }
+          decrypted = wxClient.decryptNotifyResource(
+            resource.ciphertext,
+            resource.nonce,
+            resource.associated_data,
+          );
+          break;
+        } catch {
+          continue;
+        }
+      }
+
+      if (!decrypted) {
+        this.logger.warn('[微信退款回调] 无法解密通知');
+        return { code: 'FAIL', message: '无法解密' };
+      }
+
+      const outRefundNo = decrypted.out_refund_no;
+      const refundStatus = decrypted.refund_status; // SUCCESS / CLOSED / PROCESSING / ABNORMAL
+
+      this.logger.log(`[微信退款回调] 退款单号=${outRefundNo} 状态=${refundStatus}`);
+
+      // 3) 幂等：查找退款单，已是终态则跳过
+      const refundRepo = this.dataSource.getRepository(Refund);
+      const refund = await refundRepo.findOne({
+        where: { refundNo: outRefundNo },
+        relations: ['order', 'order.payment'],
+      });
+      if (!refund) {
+        this.logger.warn(`[微信退款回调] 退款单不存在: ${outRefundNo}`);
+        return { code: 'SUCCESS', message: 'OK' };
+      }
+
+      // 已是终态 → 幂等返回
+      if (refund.status === RefundStatus.SUCCESS) {
+        this.logger.log(`[微信退款回调] 退款单已成功，跳过: ${outRefundNo}`);
+        return { code: 'SUCCESS', message: 'OK' };
+      }
+
+      // PROCESSING 状态不更新，等待最终状态
+      if (refundStatus === 'PROCESSING') {
+        return { code: 'SUCCESS', message: 'OK' };
+      }
+
+      if (refundStatus === 'SUCCESS') {
+        // 事务内加锁完成订单/支付状态迁移，防止与退款审批并发
+        await this.dataSource.transaction(async (mgr) => {
+          const lockedOrder = await mgr.findOne(Order, {
+            where: { id: refund.orderId },
+            lock: { mode: 'pessimistic_write' as any },
+          });
+          if (!lockedOrder) throw new Error('订单不存在');
+
+          await mgr.update(Refund, refund.id, {
+            status: RefundStatus.SUCCESS,
+            outRefundNo: decrypted.refund_id || refund.outRefundNo,
+            refundSucceededAt: new Date(decrypted.success_time || new Date()),
+            notifyPayload: JSON.stringify(decrypted),
+          });
+
+          // 更新订单退款金额与状态（仅当订单未退款完成时）
+          const newRefunded = Number(
+            (Number(lockedOrder.refundedAmount || 0) + Number(refund.refundAmount)).toFixed(2),
+          );
+          const isFullRefund = Math.abs(newRefunded - Number(lockedOrder.paidAmount)) < 0.01;
+          await mgr.update(Order, lockedOrder.id, {
+            refundedAmount: newRefunded,
+            status: isFullRefund ? OrderStatus.REFUNDED : OrderStatus.PARTIAL_REFUNDED,
+          });
+          if (refund.order?.payment?.id) {
+            await mgr.update(Payment, refund.order.payment.id, {
+              status: isFullRefund ? PaymentStatus.REFUNDED : PaymentStatus.REFUNDING,
+            });
+          }
+        });
+      } else if (refundStatus === 'CLOSED' || refundStatus === 'ABNORMAL') {
+        // 退款失败/异常：仅更新退款单，不动订单金额
+        const reason = decrypted.user_received_account
+          ? `退款异常: ${refundStatus}`
+          : refundStatus;
+        await refundRepo.update(refund.id, {
+          status: RefundStatus.FAILED,
+          outRefundNo: decrypted.refund_id || refund.outRefundNo,
+          errorCode: refundStatus,
+          errorMessage: reason,
+          notifyPayload: JSON.stringify(decrypted),
+        });
+      }
+
+      return { code: 'SUCCESS', message: 'OK' };
+    } catch (err) {
+      this.logger.error(`[微信退款回调] 处理异常: ${err.message}`, err.stack);
       return { code: 'FAIL', message: err.message };
     }
   }
