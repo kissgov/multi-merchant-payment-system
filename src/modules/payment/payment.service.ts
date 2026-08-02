@@ -31,6 +31,7 @@ import { CreateMicropayDto, CreateQrCodeDto } from './dto/create-payment.dto';
 import { EmployeePayload } from '../../common/decorators/current-employee.decorator';
 import { AuditLogService } from '../audit/audit-log.service';
 import { AuditAction } from '../../entities/audit-log.entity';
+import { WechatPayV3Client, WechatPayConfig } from './wechat-pay-v3.client';
 
 /**
  * 支付结果接口
@@ -57,7 +58,7 @@ export interface PaymentResult {
 
 @Injectable()
 export class PaymentService {
-  private readonly logger = new Logger(PaymentService.name);
+  readonly logger = new Logger(PaymentService.name);
 
   constructor(
     private readonly dataSource: DataSource,
@@ -137,6 +138,29 @@ export class PaymentService {
         ? 'https://openapi-sandbox.dl.alipaydev.com/gateway.do'
         : 'https://openapi.alipay.com/gateway.do',
     });
+  }
+
+  // =============== 工具：获取微信支付V3客户端 ===============
+  private getWechatClient(merchant: Merchant, store?: Store): WechatPayV3Client {
+    const cfg = this.resolvePaymentConfig(merchant, store);
+    if (
+      !cfg.wechatMchId ||
+      !cfg.wechatAppId ||
+      !cfg.wechatApiV3Key ||
+      !cfg.wechatPrivateKey ||
+      !cfg.wechatMchSerialNo
+    ) {
+      throw new BadRequestException('微信支付未配置，请先完善支付配置（需商户号、AppID、APIv3密钥、商户证书序列号、商户私钥）');
+    }
+    const wxConfig: WechatPayConfig = {
+      appId: cfg.wechatAppId,
+      mchId: cfg.wechatMchId,
+      apiV3Key: cfg.wechatApiV3Key,
+      mchSerialNo: cfg.wechatMchSerialNo,
+      privateKey: cfg.wechatPrivateKey,
+      sandbox: cfg.wechatSandbox,
+    };
+    return new WechatPayV3Client(wxConfig);
   }
 
   // =============== 工具：检查员工收款权限与限额 ===============
@@ -452,29 +476,26 @@ export class PaymentService {
     payment: Payment,
     authCode: string,
   ): Promise<PaymentResult> {
-    // 解析最终生效配置（门店独立配置优先，回退商户）
-    const cfg = this.resolvePaymentConfig(merchant, store);
-    if (
-      !cfg.wechatMchId ||
-      !cfg.wechatAppId ||
-      !cfg.wechatApiV3Key ||
-      !cfg.wechatPrivateKey
-    ) {
-      throw new BadRequestException('微信支付未配置，请先完善支付配置');
-    }
-    const mchId = cfg.wechatMchId;
+    const wxClient = this.getWechatClient(merchant, store);
+    const notifyUrl = `${this.configService.get(
+      'PAYMENT_NOTIFY_BASE_URL',
+      'https://your-domain.com',
+    )}/api/payment/notify/wechat`;
 
-    // ===== 微信支付V3 集成示意 =====
-    // 实际项目中请使用 wxpay-v3 SDK 或自己封装签名请求
-    // 这里给出标准的请求参数与结果处理
     this.logger.debug(
-      `[微信被扫] 配置来源=${cfg.configSource} 商户号=${mchId} 订单=${order.orderNo} 金额=${order.paidAmount}`,
+      `[微信被扫] 订单=${order.orderNo} 金额=${order.paidAmount} 付款码=${authCode.substring(0, 6)}***`,
     );
 
-    // 示例：模拟微信被扫（实际需调用微信 API：/v3/pay/transactions/codepay）
-    const mockResult = this.mockWechatMicropayResponse(order, authCode);
+    const result = await wxClient.micropay({
+      description: order.subject,
+      outTradeNo: order.orderNo,
+      amount: order.paidAmount,
+      authCode,
+      notifyUrl,
+    });
 
-    if (mockResult.status === 'SUCCESS') {
+    // tradeState: SUCCESS / REFUND / NOTPAY / CLOSED / REVOKED / USERPAYING / PAYERROR
+    if (result.tradeState === 'SUCCESS') {
       const paidAt = new Date();
       const channelFee = Number((order.paidAmount * 0.0038).toFixed(2));
       const platformFee = Number(
@@ -483,12 +504,12 @@ export class PaymentService {
       await this.orderRepo.update(order.id, { status: OrderStatus.PAID, paidAt });
       await this.paymentRepo.update(payment.id, {
         status: PaymentStatus.SUCCESS,
-        outTradeNo: mockResult.transactionId,
-        payerAccount: mockResult.openid,
+        outTradeNo: result.transactionId,
+        payerAccount: result.payerOpenid,
         channelFee,
         merchantNetAmount: Number((order.paidAmount - channelFee - platformFee).toFixed(2)),
         paySucceededAt: paidAt,
-        responsePayload: JSON.stringify(mockResult),
+        responsePayload: JSON.stringify(result),
       });
       return {
         success: true,
@@ -499,11 +520,12 @@ export class PaymentService {
         amount: order.paidAmount,
         channel: PaymentChannel.WECHAT,
         paidAt,
-        outTradeNo: mockResult.transactionId,
-        payerAccount: mockResult.openid,
+        outTradeNo: result.transactionId,
+        payerAccount: result.payerOpenid,
         message: '支付成功',
       };
-    } else if (mockResult.status === 'USERPAYING') {
+    } else if (result.tradeState === 'USERPAYING') {
+      // 用户支付中，需要轮询查询
       return {
         success: false,
         orderId: order.id,
@@ -515,20 +537,9 @@ export class PaymentService {
         message: '等待用户输入密码，请稍后查询',
       };
     } else {
-      throw new Error(mockResult.message || '微信支付失败');
+      // NOTPAY / CLOSED / REVOKED / PAYERROR
+      throw new Error(result.tradeStateDesc || result.tradeState || '微信支付失败');
     }
-  }
-
-  /** 微信被扫模拟响应（开发测试使用） */
-  private mockWechatMicropayResponse(order: Order, authCode: string) {
-    const code = authCode.substring(0, 2);
-    if (code === '10' || code === '11' || code === '12' || code === '13' || code === '14' || code === '15') {
-      return { status: 'SUCCESS', transactionId: '420000' + Date.now(), openid: 'o****_mock_****o' };
-    }
-    if (code === '20') {
-      return { status: 'USERPAYING', message: '用户支付中' };
-    }
-    return { status: 'FAIL', message: '无效付款码或余额不足' };
   }
 
   // =============== 2. 主扫模式：生成收款二维码（用户扫码） ===============
@@ -666,13 +677,23 @@ export class PaymentService {
     store: Store,
     order: Order,
   ): Promise<string> {
-    const cfg = this.resolvePaymentConfig(merchant, store);
-    if (!cfg.wechatMchId || !cfg.wechatAppId) {
-      // 返回模拟URL
-      return `weixin://wxpay/bizpayurl?pr=mock_${order.orderNo}`;
-    }
-    // 实际：调用 /v3/pay/transactions/native 获取 code_url
-    return `weixin://wxpay/bizpayurl?pr=real_${order.orderNo}_${Date.now()}`;
+    const wxClient = this.getWechatClient(merchant, store);
+    const notifyUrl = `${this.configService.get(
+      'PAYMENT_NOTIFY_BASE_URL',
+      'https://your-domain.com',
+    )}/api/payment/notify/wechat`;
+
+    this.logger.debug(`[微信主扫] 订单=${order.orderNo} 金额=${order.paidAmount}`);
+
+    const result = await wxClient.nativePay({
+      description: order.subject,
+      outTradeNo: order.orderNo,
+      amount: order.paidAmount,
+      notifyUrl,
+    });
+
+    this.logger.log(`[微信主扫] 二维码生成成功 订单=${order.orderNo}`);
+    return result.codeUrl;
   }
 
   // =============== 3. 主动查询支付状态（轮询用） ===============
@@ -813,7 +834,240 @@ export class PaymentService {
   }
 
   private async queryWechat(merchant, store, order) {
-    // 实际调用 /v3/pay/transactions/out-trade-no/{out_trade_no}
-    return { success: false, message: '用户可能未完成支付' };
+    try {
+      const wxClient = this.getWechatClient(merchant, store);
+      const result = await wxClient.queryByOutTradeNo(order.orderNo);
+
+      if (result.tradeState === 'SUCCESS') {
+        return {
+          success: true,
+          tradeNo: result.transactionId,
+          payer: result.payerOpenid,
+        };
+      }
+      return {
+        success: false,
+        message: result.tradeStateDesc || result.tradeState || '支付处理中',
+      };
+    } catch (err) {
+      this.logger.warn(`[微信查询] 异常: ${err.message}`);
+      return { success: false, message: '查询失败，稍后重试' };
+    }
+  }
+
+  // =============== 4. 支付宝退款（供 RefundService 调用） ===============
+  async alipayRefund(
+    merchant: Merchant,
+    store: Store | null,
+    orderNo: string,
+    refundAmount: number,
+    refundNo: string,
+    reason?: string,
+  ): Promise<string> {
+    const alipaySdk = this.getAlipayInstance(merchant, store || undefined);
+
+    const bizContent = {
+      out_trade_no: orderNo,
+      refund_amount: refundAmount.toFixed(2),
+      out_request_no: refundNo,
+      refund_reason: reason || '用户申请退款',
+    };
+
+    this.logger.log(`[支付宝退款] 订单=${orderNo} 金额=${refundAmount} 退款单号=${refundNo}`);
+
+    const resp = await alipaySdk.exec('alipay.trade.refund', {
+      bizContent: JSON.stringify(bizContent),
+    });
+
+    if (resp.code === '10000') {
+      this.logger.log(`[支付宝退款] 成功 退款单号=${refundNo}`);
+      return resp.tradeNo || refundNo;
+    }
+    throw new Error(resp.subMsg || resp.msg || '支付宝退款失败');
+  }
+
+  // =============== 5. 微信退款（供 RefundService 调用） ===============
+  async wechatRefund(
+    merchant: Merchant,
+    store: Store | null,
+    orderNo: string,
+    refundAmount: number,
+    totalAmount: number,
+    refundNo: string,
+    reason?: string,
+  ): Promise<string> {
+    const wxClient = this.getWechatClient(merchant, store || undefined);
+    const notifyUrl = `${this.configService.get(
+      'PAYMENT_NOTIFY_BASE_URL',
+      'https://your-domain.com',
+    )}/api/payment/notify/wechat/refund`;
+
+    this.logger.log(`[微信退款] 订单=${orderNo} 退款金额=${refundAmount} 退款单号=${refundNo}`);
+
+    const result = await wxClient.refund({
+      outTradeNo: orderNo,
+      outRefundNo: refundNo,
+      refundAmount,
+      totalAmount,
+      reason,
+      notifyUrl,
+    });
+
+    if (result.status === 'SUCCESS' || result.status === 'PROCESSING') {
+      this.logger.log(`[微信退款] ${result.status} 退款单号=${refundNo} 微信退款单号=${result.refundId}`);
+      return result.refundId || refundNo;
+    }
+    throw new Error(`微信退款状态: ${result.status}`);
+  }
+
+  // =============== 6. 回调处理（供 Controller 调用） ===============
+
+  /** 处理支付宝回调 */
+  async handleAlipayNotify(params: any): Promise<boolean> {
+    try {
+      // 验签
+      const alipaySdk = this.getAlipayInstance(
+        await this.merchantRepo.findOneOrFail({ where: { id: params.merchantId || '' } }),
+      );
+      // 支付宝回调验签 SDK 3.x 使用 checkNotifySign
+      const signVerified = alipaySdk.checkNotifySign(params);
+      if (!signVerified) {
+        this.logger.warn(`[支付宝回调] 验签失败`);
+        return false;
+      }
+
+      const tradeStatus = params.trade_status;
+      const orderNo = params.out_trade_no;
+
+      if (tradeStatus === 'TRADE_SUCCESS' || tradeStatus === 'TRADE_FINISHED') {
+        const order = await this.orderRepo.findOne({ where: { orderNo } });
+        if (!order) {
+          this.logger.warn(`[支付宝回调] 订单不存在: ${orderNo}`);
+          return true; // 返回 success 避免微信重复通知
+        }
+
+        if (order.status === OrderStatus.PAID) {
+          this.logger.log(`[支付宝回调] 订单已支付，跳过: ${orderNo}`);
+          return true;
+        }
+
+        const paidAt = new Date(params.gmt_payment || new Date());
+        const merchant = await this.merchantRepo.findOneOrFail({ where: { id: order.merchantId } });
+        const channelFee = Number((order.paidAmount * 0.0038).toFixed(2));
+        const platformFee = Number(
+          (order.paidAmount * (merchant.platformFeeRate || 0)).toFixed(2),
+        );
+
+        await this.orderRepo.update(order.id, { status: OrderStatus.PAID, paidAt });
+        const payment = await this.paymentRepo.findOne({ where: { orderId: order.id } });
+        if (payment) {
+          await this.paymentRepo.update(payment.id, {
+            status: PaymentStatus.SUCCESS,
+            outTradeNo: params.trade_no,
+            payerAccount: params.buyer_logon_id,
+            payerName: params.buyer_user_name,
+            channelFee,
+            merchantNetAmount: Number((order.paidAmount - channelFee - platformFee).toFixed(2)),
+            paySucceededAt: paidAt,
+            responsePayload: JSON.stringify(params),
+          });
+        }
+
+        this.logger.log(`[支付宝回调] 处理成功 订单=${orderNo} 交易号=${params.trade_no}`);
+      }
+
+      return true;
+    } catch (err) {
+      this.logger.error(`[支付宝回调] 处理异常: ${err.message}`, err.stack);
+      return false;
+    }
+  }
+
+  /** 处理微信回调 */
+  async handleWechatNotify(
+    body: any,
+    headers: any,
+  ): Promise<{ code: string; message: string }> {
+    try {
+      const { resource } = body;
+
+      if (!resource) {
+        return { code: 'FAIL', message: '无 resource 数据' };
+      }
+
+      // 微信回调时还不知道是哪个商户，需要遍历所有配置了微信支付的商户来解密
+      // 生产环境建议在商户表增加微信平台证书序列号字段，通过回调 header 中的 Wechatpay-Serial 匹配
+      const merchants = await this.merchantRepo.find({
+        where: { wechatApiV3Key: MoreThan('') as any },
+      });
+
+      let decrypted: any = null;
+      let matchedMerchant: Merchant | null = null;
+
+      for (const m of merchants) {
+        if (!m.wechatApiV3Key) continue;
+        try {
+          const wxClient = this.getWechatClient(m);
+          decrypted = wxClient.decryptNotifyResource(
+            resource.ciphertext,
+            resource.nonce,
+            resource.associated_data,
+          );
+          matchedMerchant = m;
+          break;
+        } catch {
+          // 密钥不匹配，尝试下一个商户
+          continue;
+        }
+      }
+
+      if (!decrypted || !matchedMerchant) {
+        this.logger.warn(`[微信回调] 无法解密通知，尝试了 ${merchants.length} 个商户`);
+        return { code: 'FAIL', message: '无法解密回调数据' };
+      }
+
+      const orderNo = decrypted.out_trade_no;
+      const order = await this.orderRepo.findOne({
+        where: { orderNo },
+        relations: ['payment'],
+      });
+      if (!order) {
+        this.logger.warn(`[微信回调] 订单不存在: ${orderNo}`);
+        return { code: 'SUCCESS', message: 'OK' };
+      }
+
+      if (order.status === OrderStatus.PAID) {
+        this.logger.log(`[微信回调] 订单已支付，跳过: ${orderNo}`);
+        return { code: 'SUCCESS', message: 'OK' };
+      }
+
+      if (decrypted.trade_state === 'SUCCESS') {
+        const paidAt = new Date(decrypted.success_time || new Date());
+        const channelFee = Number((order.paidAmount * 0.0038).toFixed(2));
+        const platformFee = Number(
+          (order.paidAmount * (matchedMerchant.platformFeeRate || 0)).toFixed(2),
+        );
+
+        await this.orderRepo.update(order.id, { status: OrderStatus.PAID, paidAt });
+        if (order.payment) {
+          await this.paymentRepo.update(order.payment.id, {
+            status: PaymentStatus.SUCCESS,
+            outTradeNo: decrypted.transaction_id,
+            payerAccount: decrypted.payer?.openid,
+            channelFee,
+            merchantNetAmount: Number((order.paidAmount - channelFee - platformFee).toFixed(2)),
+            paySucceededAt: paidAt,
+            responsePayload: JSON.stringify(decrypted),
+          });
+        }
+
+        this.logger.log(`[微信回调] 处理成功 订单=${orderNo} 交易号=${decrypted.transaction_id}`);
+      }
+
+      return { code: 'SUCCESS', message: 'OK' };
+    } catch (err) {
+      this.logger.error(`[微信回调] 处理异常: ${err.message}`, err.stack);
+      return { code: 'FAIL', message: err.message };
+    }
   }
 }

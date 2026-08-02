@@ -15,10 +15,12 @@ import { Payment, PaymentStatus } from '../../entities/payment.entity';
 import { Refund, RefundStatus } from '../../entities/refund.entity';
 import { Employee, EmployeeRole, EmployeeStatus } from '../../entities/employee.entity';
 import { Merchant } from '../../entities/merchant.entity';
+import { Store } from '../../entities/store.entity';
 import { EmployeePayload } from '../../common/decorators/current-employee.decorator';
 import { REFUND_APPROVAL_THRESHOLD, REFUND_REASON_CODES, RefundWorkflowStatus } from './refund-workflow.constant';
 import { AuditLogService, AuditAction } from '../audit/audit-log.service';
 import { RbacService } from '../rbac/rbac.service';
+import { PaymentService } from '../payment/payment.service';
 import { parsePagination } from '../../common/utils/page';
 
 export interface CreateRefundDto {
@@ -64,6 +66,7 @@ export class RefundService {
     private readonly merchantRepo: Repository<Merchant>,
     private readonly audit: AuditLogService,
     private readonly rbac: RbacService,
+    private readonly paymentService: PaymentService,
   ) {}
 
   // ========== 1. 申请退款（独立接口） ==========
@@ -223,12 +226,32 @@ export class RefundService {
   }
 
   private async callAlipayRefund(m: Merchant, order: Order, amount: number, refundNo: string) {
-    this.logger.log(`[支付宝退款] order=${order.orderNo} amount=${amount} refundNo=${refundNo}`);
-    return `ALIPAY_R_${Date.now()}`; // TODO 真实集成 alipay.trade.refund
+    const store = order.storeId
+      ? await this.dataSource.getRepository(Store).findOne({ where: { id: order.storeId } })
+      : null;
+    return this.paymentService.alipayRefund(
+      m,
+      store,
+      order.orderNo,
+      amount,
+      refundNo,
+      '用户申请退款',
+    );
   }
+
   private async callWechatRefund(m: Merchant, order: Order, amount: number, refundNo: string) {
-    this.logger.log(`[微信退款] order=${order.orderNo} amount=${amount} refundNo=${refundNo}`);
-    return `WECHAT_R_${Date.now()}`; // TODO 真实集成 /v3/refund/domestic/refunds
+    const store = order.storeId
+      ? await this.dataSource.getRepository(Store).findOne({ where: { id: order.storeId } })
+      : null;
+    return this.paymentService.wechatRefund(
+      m,
+      store,
+      order.orderNo,
+      amount,
+      Number(order.paidAmount),
+      refundNo,
+      '用户申请退款',
+    );
   }
 
   // ========== 2. 审核 ==========
