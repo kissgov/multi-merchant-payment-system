@@ -1,0 +1,60 @@
+name: CI
+
+# 触发：主分支推送 / PR 时运行 pre-merge 质量门禁
+# 目标：本地 pre-commit 钩子的远程延伸，拦截类型回归与关键路径失败
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 同一分支新推送时取消旧运行，节省 CI 配额
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    # pre-merge 预算：p95 < 10min（实际 install~30s + build~5s + test~10s）
+    timeout-minutes: 10
+    env:
+      # 显式声明测试环境变量，不依赖 test/setup.ts（防御性纵深）
+      NODE_ENV: test
+      DB_TYPE: better-sqlite3
+      JWT_SECRET: ci-jwt-secret-with-at-least-32-characters-length
+      PAYMENT_NOTIFY_BASE_URL: https://pay.example.com
+      DB_LOG: 'false'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # 缓存键 = package-lock.json（behavior-changing input），变更自动失效
+          cache: 'npm'
+
+      - name: Install dependencies
+        # npm ci 严格按 lockfile 安装，保证可复现
+        run: npm ci
+
+      - name: Typecheck (nest build)
+        # 风险：类型回归破坏可编译性。失败响应：修复 TS 错误后重提
+        run: npm run build
+
+      - name: Test (jest --runInBand)
+        # 风险：R1/R2/R3/R4/R6/R7 关键路径回归。
+        # --runInBand 串行执行，提升 native 模块(better-sqlite3)下的确定性
+        run: npm test -- --runInBand --ci
+
+      - name: Upload coverage (if generated)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+          if-no-files-found: ignore
