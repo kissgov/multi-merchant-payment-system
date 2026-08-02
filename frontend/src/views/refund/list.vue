@@ -42,6 +42,7 @@
         <el-form-item>
           <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
           <el-button :icon="Refresh" @click="handleReset">重置</el-button>
+          <el-button :icon="Download" @click="handleExportCsv">导出CSV</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -169,10 +170,11 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted, nextTick } from 'vue';
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus';
-import { Search, Refresh, View, Check } from '@element-plus/icons-vue';
+import { Search, Refresh, View, Check, Download } from '@element-plus/icons-vue';
 import dayjs from 'dayjs';
 import { getRefundList, getRefundDetail, auditRefund, getReasonCodes } from '@/api/refund';
 import { useUserStore } from '@/stores/user';
+import { exportCsv } from '@/utils/csv';
 
 const userStore = useUserStore();
 
@@ -321,6 +323,57 @@ function handleReset() {
   filter.keyword = '';
   pagination.page = 1;
   fetchList();
+}
+
+// CSV 导出
+async function handleExportCsv() {
+  if (loading.value) return;
+  const params = buildQuery();
+  if (!params) return;
+  loading.value = true;
+  try {
+    const res: any = await getRefundList({
+      ...params,
+      page: 1,
+      pageSize: 10000,
+    });
+    const rows = res?.list || [];
+    if (rows.length === 0) {
+      ElMessage.warning('暂无数据可导出');
+      return;
+    }
+    exportCsv(
+      rows.map((r: any) => ({
+        refundNo: r.refundNo || '',
+        orderNo: r.orderNo || '',
+        refundAmount: r.refundAmount ?? 0,
+        channel: channelLabel(r.channel),
+        status: statusLabel(r.status),
+        reason: r.reason || r.reasonCode || '',
+        operatorName: r.operatorName || '',
+        createdAt: formatTime(r.createdAt),
+      })),
+      {
+        columns: {
+          refundNo: '退款单号',
+          orderNo: '关联订单号',
+          refundAmount: '退款金额',
+          channel: '渠道',
+          status: '状态',
+          reason: '退款原因',
+          operatorName: '操作人',
+          createdAt: '申请时间',
+        },
+        filename: '退款列表',
+        moneyFields: ['refundAmount'],
+      },
+    );
+    ElMessage.success(`已导出 ${rows.length} 条退款记录`);
+  } catch {
+    // 错误信息由 request 拦截器统一提示
+  } finally {
+    loading.value = false;
+  }
 }
 
 // 审批权限：仅 pending 状态且角色为 store_manager/merchant_admin/merchant_owner

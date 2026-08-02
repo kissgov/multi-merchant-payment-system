@@ -14,7 +14,13 @@ export const getTrend = (params: {
   storeId?: string;
 }) => request.get('/api/reports/trend', { params });
 
-export const getBigScreen = () => request.get('/api/reports/big-screen');
+/** 大屏数据：silent=true 时静默请求（定时轮询不显示 loading/不弹错误） */
+export const getBigScreen = (silent = false) =>
+  request.get('/api/reports/big-screen', {
+    showLoading: !silent,
+    showError: !silent,
+    cancelDuplicate: false,
+  } as any);
 
 export const getCashierDashboard = () =>
   request.get('/api/reports/cashier-dashboard');

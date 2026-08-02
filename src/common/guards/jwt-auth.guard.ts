@@ -16,6 +16,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   private static PUBLIC_PATHS = [
     '/api/auth/login',
     '/api/payment/notify', // 支付宝/微信支付回调（公网回调，无法携带 JWT）
+    '/api/health',         // 健康检查（PM2/Nginx 探测）
   ];
 
   constructor(private reflector: Reflector) {

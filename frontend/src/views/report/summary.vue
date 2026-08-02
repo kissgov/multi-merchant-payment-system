@@ -15,6 +15,7 @@
               @change="loadData"
             />
             <el-button type="primary" :icon="Search" @click="loadData">查询</el-button>
+            <el-button :icon="Download" @click="handleExportCsv">导出CSV</el-button>
           </div>
         </div>
       </template>
@@ -65,17 +66,19 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { Search } from '@element-plus/icons-vue';
+import { Search, Download } from '@element-plus/icons-vue';
+import { ElMessage } from 'element-plus';
 import { getSummary } from '@/api/report';
+import { exportCsv } from '@/utils/csv';
 
 const dateRange = ref<[string, string] | null>(null);
 const overview = ref<any>({});
 const byChannel = ref<any[]>([]);
 const byStore = ref<any[]>([]);
 
+/** 金额格式化：数据库以 decimal(12,2) 存储元，直接 toFixed(2) */
 function formatAmount(val: any) {
-  const n = Number(val || 0) / 100;
-  return n.toFixed(2);
+  return Number(val || 0).toFixed(2);
 }
 
 async function loadData() {
@@ -92,6 +95,59 @@ async function loadData() {
   } catch {
     // ignore
   }
+}
+
+/** CSV 导出：汇总概览 + 渠道分布 + 门店分布 */
+function handleExportCsv() {
+  const rows: Array<Record<string, any>> = [];
+
+  // 概览行
+  rows.push({
+    category: '汇总概览',
+    name: '-',
+    orderCount: overview.value.successOrders || 0,
+    totalAmount: formatAmount(overview.value.totalPaidAmount),
+    extra: `退款${overview.value.refundOrders || 0}笔 ¥${formatAmount(overview.value.totalRefundAmount)}`,
+  });
+
+  // 渠道分布
+  byChannel.value.forEach((c) => {
+    rows.push({
+      category: '渠道分布',
+      name: c.channel || '-',
+      orderCount: c.orderCount || 0,
+      totalAmount: formatAmount(c.totalAmount),
+      extra: '',
+    });
+  });
+
+  // 门店分布
+  byStore.value.forEach((s) => {
+    rows.push({
+      category: '门店分布',
+      name: s.storeName || '-',
+      orderCount: s.orderCount || 0,
+      totalAmount: formatAmount(s.totalAmount),
+      extra: '',
+    });
+  });
+
+  if (rows.length <= 0) {
+    ElMessage.warning('暂无数据可导出');
+    return;
+  }
+
+  exportCsv(rows, {
+    columns: {
+      category: '分类',
+      name: '名称',
+      orderCount: '笔数',
+      totalAmount: '金额',
+      extra: '备注',
+    },
+    filename: '收款汇总报表',
+  });
+  ElMessage.success('报表已导出');
 }
 
 onMounted(loadData);

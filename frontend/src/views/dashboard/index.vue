@@ -408,17 +408,17 @@ const channelOption = computed(() => {
   };
 });
 
-/** 加载数据 */
-async function loadData() {
-  loading.value = true;
+/** 加载数据：silent=true 为定时轮询，不显示 loading/不弹错误 */
+async function loadData(silent = false) {
+  if (!silent) loading.value = true;
   try {
-    const res: any = await getBigScreen();
+    const res: any = await getBigScreen(silent);
     data.value = (res || {}) as BigScreenData;
     lastRefreshTime.value = dayjs().format('YYYY-MM-DD HH:mm:ss');
   } catch {
-    // 错误信息由 request 拦截器统一提示
+    // 错误信息由 request 拦截器统一提示（静默模式不弹）
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
   }
 }
 
@@ -426,8 +426,8 @@ let timer: ReturnType<typeof setInterval> | null = null;
 
 onMounted(() => {
   loadData();
-  // 自动每30秒刷新
-  timer = setInterval(loadData, 30000);
+  // 自动每30秒静默刷新（不显示 loading 遮罩，避免闪烁）
+  timer = setInterval(() => loadData(true), 30000);
 });
 
 onUnmounted(() => {

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './modules/auth/auth.module';
 import { MerchantModule } from './modules/merchant/merchant.module';
@@ -13,6 +14,7 @@ import { ReportModule } from './modules/report/report.module';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { RefundModule } from './modules/refund/refund.module';
+import { HealthModule } from './modules/health/health.module';
 import { PermissionGuard } from './common/guards/permission.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { Employee } from './entities/employee.entity';
@@ -26,6 +28,14 @@ import { Role } from './entities/role.entity';
     }),
     // 定时任务模块（订单超时自动关闭等 Cron 任务）
     ScheduleModule.forRoot(),
+    // 速率限制：全局每分钟 60 次，防 DDoS / 恶意请求
+    ThrottlerModule.forRoot([
+      {
+        name: 'default',
+        ttl: 60000,
+        limit: 60,
+      },
+    ]),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {
@@ -69,11 +79,13 @@ import { Role } from './entities/role.entity';
     RbacModule,
     AuditModule,
     RefundModule,
+    HealthModule,
   ],
   providers: [
     // 【关键】全局守卫执行顺序 = 注册顺序：
     //   1) JwtAuthGuard   —— 先完成 JWT 认证，注入 req.user（公开接口放行）
     //   2) PermissionGuard —— 再做角色/功能权限判断（此时 req.user 已就绪）
+    //   3) ThrottlerGuard  —— 速率限制（防 DDoS / 恶意请求）
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
@@ -81,6 +93,10 @@ import { Role } from './entities/role.entity';
     {
       provide: APP_GUARD,
       useClass: PermissionGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
   ],
 })
